@@ -62,6 +62,8 @@ struct Triangle
 	Vertex v[3];	
 };
 
+
+
 int main( int argc, char ** argv )
 {
 	const int channels = 4;
@@ -95,6 +97,22 @@ int main( int argc, char ** argv )
 	vertices[2].b = 1.0f;
 	vertices[2].a = 1.0f;
 
+	vertices[0].position = glm::vec3( -0.7, 0.6, -1.2f );
+	vertices[0].r = 1.0f; 
+	vertices[0].g = 0.0f;
+	vertices[0].b = 0.0f;
+	vertices[0].a = 1.0f;
+	vertices[1].position = glm::vec3( -0.2, -0.3, -0.8f );
+	vertices[1].r = 0.0f;
+	vertices[1].g = 1.0f;
+	vertices[1].b = 0.0f;
+	vertices[1].a = 1.0f;
+	vertices[2].position = glm::vec3( 0.8, 0.2, -0.2f );
+	vertices[2].r = 0.0f;
+	vertices[2].g = 0.0f;
+	vertices[2].b = 1.0f;
+	vertices[2].a = 1.0f;	
+	
 	fprintf( stdout, "World Coordinates:\n" );
 	PVEC3( vertices[0].position );
 	PVEC3( vertices[1].position );

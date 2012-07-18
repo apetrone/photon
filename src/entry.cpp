@@ -102,7 +102,7 @@ inline unsigned int scaleColor( unsigned int a, float t )
 {
 	float ac[] = { ((a >> 24) & 0xFF)/255.0f, ((a >> 16) & 0xFF)/255.0f, ((a >> 8) & 0xFF)/255.0f, (a & 0xFF)/255.0f };
 
-	return (int(t*ac[0]*255) << 24) | (int(t*ac[1]*255) << 16) | (int(t*ac[2]*255) << 8) | (int(t*ac[3]*255));
+	return (int(t*ac[0]*255) << 24 ) | (int(t*ac[1]*255) << 16) | (int(t*ac[2]*255) << 8) | (int(t*ac[3]*255));
 }
 
 
@@ -167,9 +167,15 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 			if ( alpha > 0 && alpha < 1 && beta > 0 && beta < 1 && gamma > 0 && gamma < 1 )
 			{
 				// interpolate the color
-				pixel[0] = pixel[1] = pixel[2] = pixel[3] = 255;
-				//unsigned int * p = (unsigned int*)pixel;
-				//*p = scaleColor(t->v[0].color, alpha) + scaleColor(t->v[1].color, beta) + scaleColor(t->v[2].color, gamma); 
+				unsigned int p = scaleColor(t->v[0].color, alpha) + scaleColor(t->v[1].color, beta) + scaleColor(t->v[2].color, gamma); 
+				unsigned char r = (p >> 24) & 0xFF;
+				unsigned char g = (p >> 16) & 0xFF;
+				unsigned char b = (p >> 8) & 0xFF;
+				unsigned char a = p & 0xFF;
+				pixel[0] = r;
+				pixel[1] = g;
+				pixel[2] = b;
+				pixel[3] = a;
 				//fprintf( stdout, "p = %i\n", (*p >> 24) & 0xFF );
 				//pixel[0] = (vertices[0].r * alpha + vertices[1].r * beta + vertices[2].r * gamma) * 255.0f;
 				//pixel[1] = (vertices[0].g * alpha + vertices[1].g * beta + vertices[2].g * gamma) * 255.0f;
@@ -265,11 +271,11 @@ int main( int argc, char ** argv )
 	triangles = new Triangle[ num_triangles ];
 	Triangle t1;
 	t1.v[0].position = glm::vec3( -0.4f, 0.2f, -0.2f );
-	t1.v[0].color = Color(255, 0, 0, 0);
+	t1.v[0].color = Color(255, 0, 0, 255);
 	t1.v[1].position = glm::vec3( -0.2, -0.6, -0.6f );
-	t1.v[1].color = Color(0, 255, 0, 0);
+	t1.v[1].color = Color(0, 255, 0, 255);
 	t1.v[2].position = glm::vec3( 0.2, 0.9, -0.3f );
-	t1.v[2].color = Color(0, 0, 255, 0);
+	t1.v[2].color = Color(0, 0, 255, 255);
 
 	triangles[0] = t1;
 	/*

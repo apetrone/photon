@@ -182,9 +182,14 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 				// calculate the z value
 				float z = (t->v[0].ndc.z * alpha + t->v[1].ndc.z * beta + t->v[2].ndc.z * gamma);
 				
-				glm::vec3 lightdir = glm::normalize(light_dirA * alpha + light_dirB * beta + light_dirC * gamma);
-				glm::vec3 normal = glm::normalize(t->v[0].normal * alpha + t->v[1].normal * beta + t->v[2].normal * gamma);
-				float ndl = fmax(0.0f, glm::dot( lightdir, normal ));
+				glm::vec3 vertex_to_light = glm::normalize(light_position_eye - glm::vec3(t->v[0].eye));
+				glm::vec3 normal = t->v[0].normal;
+				
+				float ndl = fmax(0.0f, glm::dot( normal, vertex_to_light ) );
+				
+				//glm::vec3 lightdir = glm::normalize(light_dirA * alpha + light_dirB * beta + light_dirC * gamma);
+				//glm::vec3 normal = glm::normalize(t->v[0].normal * alpha + t->v[1].normal * beta + t->v[2].normal * gamma);
+				//float ndl = fmax(0.0f, glm::dot( lightdir, normal ));
 				
 				// perform a depth test
 				if ( z < rb.zbuffer[ idx ] )

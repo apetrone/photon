@@ -139,6 +139,13 @@ void clearDepth( RenderBuffer & rb, float value )
 
 void renderTriangle( RenderBuffer & rb, Triangle * t )
 {
+	glm::vec3 edge1 = glm::vec3(t->v[1].ndc - t->v[0].ndc);
+	glm::vec3 edge2 = glm::vec3(t->v[2].ndc - t->v[0].ndc);
+	glm::vec3 normal = glm::normalize( glm::cross( edge1, edge2 ) );
+	PVEC3( normal );
+	if ( normal.z < 0 )
+		return;
+	
 	// find the bounding rect of the triangle in screen space	
 	glm::vec2 mins(rb.width, rb.height), maxs;
 	for( int i = 0; i < 3; ++i )
@@ -157,7 +164,7 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 	mins.y = floor(mins.y);
 	maxs.x = floor(maxs.x);
 	maxs.y = floor(maxs.y);	
-	
+
 	//fminf( fminf( t->v[0].screen.x, t->v[1].screen.x ), t->v[2].screen.x );
 
 

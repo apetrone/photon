@@ -2,6 +2,7 @@
 #include <string.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 #include <SOIL.h>
 #include <float.h>
 
@@ -61,8 +62,11 @@ struct Camera
 struct Vertex
 {
 	glm::vec3 position;
+	glm::vec4 eye;
+	glm::vec4 clip;
 	glm::vec4 ndc;
 	glm::vec2 screen;
+	glm::vec3 normal;
 	float r, g, b, a;
 	unsigned int color;
 };
@@ -92,6 +96,7 @@ struct Triangle
 Triangle * triangles = 0;
 unsigned int num_triangles = 0;
 
+glm::vec3 light_position_eye;
 
 inline unsigned int Color( unsigned char _r, unsigned char _g, unsigned char _b, unsigned char _a )
 {
@@ -104,9 +109,6 @@ inline unsigned int scaleColor( unsigned int a, float t )
 
 	return (int(t*ac[0]) ) | (int(t*ac[1]) << 8) | (int(t*ac[2]) << 16) | (int(t*ac[3]) << 24);
 }
-
-
-
 
 void clearColor( RenderBuffer & rb, unsigned int color )
 {
@@ -138,14 +140,7 @@ void clearDepth( RenderBuffer & rb, float value )
 
 
 void renderTriangle( RenderBuffer & rb, Triangle * t )
-{
-	glm::vec3 edge1 = glm::vec3(t->v[1].ndc - t->v[0].ndc);
-	glm::vec3 edge2 = glm::vec3(t->v[2].ndc - t->v[0].ndc);
-	glm::vec3 normal = glm::normalize( glm::cross( edge1, edge2 ) );
-	PVEC3( normal );
-	if ( normal.z < 0 )
-		return;
-	
+{	
 	// find the bounding rect of the triangle in screen space	
 	glm::vec2 mins(rb.width, rb.height), maxs;
 	for( int i = 0; i < 3; ++i )
@@ -166,15 +161,10 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 	maxs.y = floor(maxs.y);	
 
 	//fminf( fminf( t->v[0].screen.x, t->v[1].screen.x ), t->v[2].screen.x );
+	glm::vec3 light_dirA = light_position_eye - glm::vec3(t->v[0].eye);
+	glm::vec3 light_dirB = light_position_eye - glm::vec3(t->v[1].eye);
+	glm::vec3 light_dirC = light_position_eye - glm::vec3(t->v[2].eye);
 
-
-	//unsigned int max_width = (maxs.x - mins.x);
-	//unsigned int max_height = (maxs.y - mins.y);
-	//fprintf( stdout, "rect: %i x %i\n", max_width, max_height );
-	
-	// I invert the direction that the height is traversed to match the same image output as OpenGL
-	// Alternatively, I could simply flip the image when I'm done...
-//	for( int h = VIEWPORT_HEIGHT; h > 0; --h )
 	unsigned int idx;
 	for( unsigned int py = mins.y; py < maxs.y; ++py )
 	{
@@ -192,6 +182,10 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 				// calculate the z value
 				float z = (t->v[0].ndc.z * alpha + t->v[1].ndc.z * beta + t->v[2].ndc.z * gamma);
 				
+				glm::vec3 lightdir = glm::normalize(light_dirA * alpha + light_dirB * beta + light_dirC * gamma);
+				glm::vec3 normal = glm::normalize(t->v[0].normal * alpha + t->v[1].normal * beta + t->v[2].normal * gamma);
+				float ndl = fmax(0.0f, glm::dot( lightdir, normal ));
+				
 				// perform a depth test
 				if ( z < rb.zbuffer[ idx ] )
 				{
@@ -203,9 +197,9 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 					unsigned char g = (p >> 16) & 0xFF;
 					unsigned char b = (p >> 8) & 0xFF;
 					unsigned char a = p & 0xFF;
-					pixel[0] = r;
-					pixel[1] = g;
-					pixel[2] = b;
+					pixel[0] = r * ndl;
+					pixel[1] = g * ndl;
+					pixel[2] = b * ndl;
 					pixel[3] = a;
 				}
 			}
@@ -231,26 +225,44 @@ void renderScene( const Camera & camera, const Viewport & viewport, RenderBuffer
 {
 	clearColor( rb, Color(0,0,0,255) );
 	clearDepth( rb, 9 );
+	
+	glm::vec3 lightposition( 5, 10, 10 );
+//	glm::mat3 normal_matrix = glm::inverseTranspose( glm::mat3( camera.modelview ) );
+	light_position_eye = glm::vec3(camera.modelview * glm::vec4(lightposition, 1.0) );	
+	
 	Triangle * t = triangles;
 	// for every object visible in the scene
 	for( int i = 0; i < num_triangles; ++i )
 	{
 		// convert triangle to clip space
-		worldSpaceToClipSpace( camera.modelview_projection, t->v[0].position, t->v[0].ndc );
-		worldSpaceToClipSpace( camera.modelview_projection, t->v[1].position, t->v[1].ndc );
-		worldSpaceToClipSpace( camera.modelview_projection, t->v[2].position, t->v[2].ndc );
-
+		worldSpaceToClipSpace( camera.modelview_projection, t->v[0].position, t->v[0].clip );
+		worldSpaceToClipSpace( camera.modelview_projection, t->v[1].position, t->v[1].clip );
+		worldSpaceToClipSpace( camera.modelview_projection, t->v[2].position, t->v[2].clip );
+		
+		// convert verts into eye space
+		t->v[0].eye = camera.modelview * glm::vec4( t->v[0].position, 1.0 );
+		t->v[1].eye = camera.modelview * glm::vec4( t->v[1].position, 1.0 );	
+		t->v[2].eye = camera.modelview * glm::vec4( t->v[2].position, 1.0 );
+		
 		// divide by w, convert to normalized device coordinates
-		t->v[0].ndc *= (1/t->v[0].ndc.w);
-		t->v[1].ndc *= (1/t->v[1].ndc.w);
-		t->v[2].ndc *= (1/t->v[2].ndc.w);
+		t->v[0].ndc = t->v[0].clip * (1/t->v[0].clip.w);
+		t->v[1].ndc = t->v[1].clip * (1/t->v[1].clip.w);
+		t->v[2].ndc = t->v[2].clip * (1/t->v[2].clip.w);
 
 		// convert triangle to screen coordinates
 		normalizedDeviceCoordsToScreen( glm::vec2(t->v[0].ndc), t->v[0].screen, viewport );
 		normalizedDeviceCoordsToScreen( glm::vec2(t->v[1].ndc), t->v[1].screen, viewport );
 		normalizedDeviceCoordsToScreen( glm::vec2(t->v[2].ndc), t->v[2].screen, viewport );
 
-		renderTriangle( rb, t );
+		// perform culling
+		glm::vec3 edge1 = glm::vec3(t->v[1].ndc - t->v[0].ndc);
+		glm::vec3 edge2 = glm::vec3(t->v[2].ndc - t->v[0].ndc);
+		glm::vec3 normal = glm::normalize( glm::cross( edge1, edge2 ) );
+		
+		if ( normal.z > 0 )
+		{		
+			renderTriangle( rb, t );
+		}
 		t++;
 	}
 }
@@ -264,7 +276,7 @@ int main( int argc, char ** argv )
 
 	// setup camera
 	Camera cam1;
-	cam1.modelview = glm::translate( glm::mat4(1.0f), glm::vec3( 0, 0, -5 ));
+	cam1.modelview = glm::translate( glm::mat4(1.0f), glm::vec3( 0, 0, -2 ));
 	cam1.projection = glm::perspective( 60.0f, ((float)VIEWPORT_WIDTH/(float)VIEWPORT_HEIGHT), .1f, 2048.0f );
 	cam1.modelview_projection = cam1.projection * cam1.modelview;
 
@@ -281,20 +293,27 @@ int main( int argc, char ** argv )
 	Triangle t1;
 	t1.v[0].position = glm::vec3( -0.4f, 0.2f, -0.2f );
 	t1.v[0].color = Color(0, 0, 255, 255);
+	t1.v[0].normal = glm::normalize(glm::vec3( 1, 0, 1 ));	
 	t1.v[1].position = glm::vec3( -0.2, -0.6, -1.6f );
-	t1.v[1].color = Color(0, 255, 0, 255);
-	t1.v[2].position = glm::vec3( 0.2, 0.9, -0.3f );
-	t1.v[2].color = Color(0, 0, 255, 255);
+	t1.v[1].color = Color(0, 0, 255, 255);
+	t1.v[1].normal = glm::normalize(glm::vec3( 1, 0.35, 0.5 ));	
+	t1.v[2].position = glm::vec3( 0.5, 0.9, -0.5f );
+	t1.v[2].color = Color(0, 255, 0, 255);
+	t1.v[2].normal = glm::normalize(glm::vec3( 1, -0.55, 1 ));
 	triangles[0] = t1;
 	
 	t1.v[0].position = glm::vec3( -0.7, 0.6, -1.2f );
 	t1.v[0].color = Color(255, 0, 0, 255);
+	t1.v[0].normal = glm::vec3( 0, 0, 1 );
 	t1.v[1].position = glm::vec3( -0.2, -0.3, -0.8f );
 	t1.v[1].color = Color(0, 255, 0, 255);
+	t1.v[1].normal = glm::vec3( 0, 0, 1 );	
 	t1.v[2].position = glm::vec3( 0.8, 0.2, -0.2f );
 	t1.v[2].color = Color(0, 0, 255, 255);
+	t1.v[2].normal = glm::vec3( 0, 0, 1 );	
 	triangles[1] = t1;
-
+	
+		
 	renderScene( cam1, vp, render_buffer );
 	fprintf( stdout, "triangles rendered: %i\n", num_triangles );
 

@@ -67,6 +67,7 @@ struct Vertex
 	glm::vec4 ndc;
 	glm::vec2 screen;
 	glm::vec3 normal;
+	glm::vec3 normal_eye;
 	float u, v;
 	float r, g, b, a;
 	unsigned int color;
@@ -117,11 +118,13 @@ struct Settings
 {
 	int perspective_correct;
 	int backface_culling;
+	int texture_mapping;
 	
 	Settings()
 	{
 		perspective_correct = 1;
 		backface_culling = 1;
+		texture_mapping = 0;
 	}
 };
 
@@ -277,16 +280,15 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 				if ( depth < rb.zbuffer[ idx ] )
 				{
 					rb.zbuffer[ idx ] = depth;
-
 					glm::vec3 vertex_to_light = glm::normalize(light_position_eye - glm::vec3(t->v[0].eye));
-					glm::vec3 normal = t->v[0].normal;
-//					float ndl = fmax(0.0f, glm::dot( normal, vertex_to_light ) );
-					float ndl = 1.0;
-					
+					vertex_to_light = glm::normalize( light_position_eye - glm::vec3( (((t->v[0].eye/w[0]) * alpha) + ((t->v[1].eye/w[1]) * beta) + ((t->v[2].eye/w[2]) * gamma))/invw ) );
+					glm::vec3 normal = glm::normalize((((t->v[0].normal_eye/w[0]) * alpha + ((t->v[1].normal_eye/w[1]) * beta) + ((t->v[2].normal_eye/w[2]) * gamma))) / invw );
+					float ndl = fmax(0.0f, glm::dot( normal, vertex_to_light ) );
+
 
 					
 					glm::vec4 texel;
-					if ( t->texture )
+					if ( t->texture && settings().texture_mapping )
 					{
 						float u = (((t->v[0].u/w[0]) * alpha) + ((t->v[1].u/w[1]) * beta) + ((t->v[2].u/w[2]) * gamma)) / invw;
 						float v = (((t->v[0].v/w[0]) * alpha) + ((t->v[1].v/w[1]) * beta) + ((t->v[2].v/w[2]) * gamma)) / invw;
@@ -337,8 +339,8 @@ void renderScene( const Camera & camera, const Viewport & viewport, RenderBuffer
 	clearDepth( rb, 9 );
 	
 	glm::vec3 lightposition( 5, 10, 10 );
-//	glm::mat3 normal_matrix = glm::inverseTranspose( glm::mat3( camera.modelview ) );
-	light_position_eye = glm::vec3(camera.modelview * glm::vec4(lightposition, 1.0) );	
+	glm::mat3 normal_matrix = glm::inverseTranspose( glm::mat3( camera.modelview ) );
+	light_position_eye = glm::vec3(camera.modelview * glm::vec4(lightposition, 1.0) );
 	
 	Triangle * t = triangles;
 	// for every object visible in the scene
@@ -371,6 +373,11 @@ void renderScene( const Camera & camera, const Viewport & viewport, RenderBuffer
 		normalizedDeviceCoordsToScreen( glm::vec2(t->v[2].ndc), t->v[2].screen, viewport );
 //		PVEC2( t->v[0].screen );		
 		
+		// also transform nomals into eye space
+		t->v[0].normal_eye = normal_matrix * t->v[0].normal;
+		t->v[1].normal_eye = normal_matrix * t->v[1].normal;
+		t->v[2].normal_eye = normal_matrix * t->v[2].normal;
+		
 		// perform culling
 		glm::vec3 edge1 = glm::vec3(t->v[1].ndc - t->v[0].ndc);
 		glm::vec3 edge2 = glm::vec3(t->v[2].ndc - t->v[0].ndc);
@@ -400,6 +407,7 @@ int main( int argc, char ** argv )
 	fprintf( stdout, "======== Settings ========\n" );
 	fprintf( stdout, "\tperpsective_correct: %i\n", settings().perspective_correct );
 	fprintf( stdout, "\tbackface_culling: %i\n", settings().backface_culling );
+	fprintf( stdout, "\ttexture_mapping: %i\n", settings().texture_mapping );
 	
 	// setup camera
 	Camera cam1;
@@ -408,7 +416,7 @@ int main( int argc, char ** argv )
 	cam1.modelview_projection = cam1.projection * cam1.modelview;
 
 	
-	cam1.modelview = glm::rotate( cam1.modelview, 45.0f, glm::vec3( 1, 0, 0 ) );
+	cam1.modelview = glm::rotate( cam1.modelview, 45.0f, glm::vec3( 0, 1, 0 ) );
 
 	RenderBuffer render_buffer;
 	render_buffer.width = (int)VIEWPORT_WIDTH;

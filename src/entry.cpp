@@ -119,12 +119,14 @@ struct Settings
 	int perspective_correct;
 	int backface_culling;
 	int texture_mapping;
+	int lighting;
 	
 	Settings()
 	{
 		perspective_correct = 1;
 		backface_culling = 1;
-		texture_mapping = 0;
+		texture_mapping = 1;
+		lighting = 1;
 	}
 };
 
@@ -257,7 +259,7 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 			barycentric_coords( point, t->v[0].screen, t->v[1].screen, t->v[2].screen, &alpha, &beta, &gamma );
 
 			// determine if this pixel resides in the triangle or not
-			if ( alpha > 0 && alpha < 1 && beta > 0 && beta < 1 && gamma > 0 && gamma < 1 )
+			if ( alpha >= 0 && alpha <= 1 && beta >= 0 && beta <= 1 && gamma >= 0 && gamma <= 1 )
 			{
 				// interpolate the value of w (clip space) at this pixel
 //				w is not affine in screen space, but 1/w is (identical to z-view)
@@ -280,12 +282,11 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 				if ( depth < rb.zbuffer[ idx ] )
 				{
 					rb.zbuffer[ idx ] = depth;
-					glm::vec3 vertex_to_light = glm::normalize(light_position_eye - glm::vec3(t->v[0].eye));
-					vertex_to_light = glm::normalize( light_position_eye - glm::vec3( (((t->v[0].eye/w[0]) * alpha) + ((t->v[1].eye/w[1]) * beta) + ((t->v[2].eye/w[2]) * gamma))/invw ) );
+					glm::vec3 vertex_to_light = glm::normalize( light_position_eye - glm::vec3( (((t->v[0].eye/w[0]) * alpha) + ((t->v[1].eye/w[1]) * beta) + ((t->v[2].eye/w[2]) * gamma))/invw ) );
 					glm::vec3 normal = glm::normalize((((t->v[0].normal_eye/w[0]) * alpha + ((t->v[1].normal_eye/w[1]) * beta) + ((t->v[2].normal_eye/w[2]) * gamma))) / invw );
 					float ndl = fmax(0.0f, glm::dot( normal, vertex_to_light ) );
-
-
+					if ( !settings().lighting )
+						ndl = 1.0;
 					
 					glm::vec4 texel;
 					if ( t->texture && settings().texture_mapping )
@@ -336,9 +337,9 @@ void normalizedDeviceCoordsToScreen( const glm::vec2 & ndc, glm::vec2 & screenpo
 void renderScene( const Camera & camera, const Viewport & viewport, RenderBuffer & rb )
 {
 	clearColor( rb, Color(0,0,0,255) );
-	clearDepth( rb, 9 );
+	clearDepth( rb, 256 );
 	
-	glm::vec3 lightposition( 5, 10, 10 );
+	glm::vec3 lightposition( 0.0, -0.0, 0.25 );
 	glm::mat3 normal_matrix = glm::inverseTranspose( glm::mat3( camera.modelview ) );
 	light_position_eye = glm::vec3(camera.modelview * glm::vec4(lightposition, 1.0) );
 	
@@ -408,6 +409,7 @@ int main( int argc, char ** argv )
 	fprintf( stdout, "\tperpsective_correct: %i\n", settings().perspective_correct );
 	fprintf( stdout, "\tbackface_culling: %i\n", settings().backface_culling );
 	fprintf( stdout, "\ttexture_mapping: %i\n", settings().texture_mapping );
+	fprintf( stdout, "\tlighting: %i\n", settings().lighting );
 	
 	// setup camera
 	Camera cam1;

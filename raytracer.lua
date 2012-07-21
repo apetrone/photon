@@ -1,6 +1,6 @@
-solution "raster"
+solution "raytracer"
 configurations {"Debug", "Release"}
-project "raster"
+project "raytracer"
 language "C++"
 location "build"
 targetdir "bin"
@@ -10,7 +10,8 @@ kind "ConsoleApp"
 
 files
 {
-	"src/**.c*"
+	"src/raytracer.cpp",
+	"src/common.hpp"
 }
 
 includedirs
@@ -18,7 +19,8 @@ includedirs
 	"glm",
 	"soil/include",
 	"soil/src/",
-	"xwl/include"
+	"xwl/include",
+	"src/"
 }
 
 libdirs

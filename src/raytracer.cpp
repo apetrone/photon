@@ -392,6 +392,54 @@ bool IntersectRaySphere( const glm::vec3 rayOrigin, const glm::vec3 rayDirection
 	return true;
 }
 
+bool IntersectRayPlane( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, const glm::vec3 planeOrigin, const glm::vec3 & planeNormal, float * t )
+{
+	float ldn = glm::dot( rayDirection, planeNormal );
+	
+	if ( fabsf(ldn) < FLT_EPSILON )
+		return false;
+	
+	float org = glm::dot( (planeOrigin - rayOrigin), planeNormal );
+
+	float planeIntersection = (org / ldn);
+	if ( planeIntersection < 0.0f )
+		return false;
+	
+	*t = planeIntersection;
+//	fprintf( stdout, "org: %g, ldn: %g, t: %g\n", org, ldn, t );
+	
+	return true;
+} // IntersectRayPlane
+
+
+typedef bool (*PrimitiveIntersection)( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, void * primitive, float * t );
+enum 
+{
+	PRIMITIVE_PLANE = 1,
+	PRIMITIVE_SPHERE,
+};
+
+struct Primitive
+{
+	int type;	
+	PrimitiveIntersection intersection;
+};
+
+
+Primitive * _primitives = 0;
+unsigned int _num_primitives = 0;
+
+void purgePrimitives()
+{
+	for( unsigned int p = 0; p < _num_primitives; ++p )
+	{
+		Primitive * primitive = &_primitives[ p ];
+		
+		
+		
+		
+	}
+}
 
 void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 {
@@ -410,6 +458,11 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 	glm::vec3 ambient( 0.10f, 0.10f, 0.125f );
 	glm::vec3 lightColor( 1.0f, 1.0f, 1.0f );
 	
+	
+	glm::vec3 planeNormal( 0.0f, 1.0f, 0.0f );
+	glm::vec3 planeOrigin( 0.0f, -2.0f, 0.0f );
+	unsigned int planeColor = Color( 255, 128, 0, 255 );
+	
 	glm::vec3 rayOrigin = eye;
 	unsigned char * pixels = rb.pixels;
 	for( int h = rb.height; h > 0; --h )
@@ -422,8 +475,27 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 			glm::vec3 v = screenV * (((float)h / rb.height) * 2.0f - 1.0f);		
 			glm::vec3 rayDirection = glm::normalize(view + u + v);
 
+			float tp;
+			if ( IntersectRayPlane( rayOrigin, rayDirection, planeOrigin, planeNormal, &tp ) )
+			{
+				float color[4];
+				convertColor( planeColor, color );
+				
+				float finalColor[3] = {1, 1, 1};
+				
+				finalColor[0] = ambient[0] + (color[0]);
+				finalColor[1] = ambient[1] + (color[1]);
+				finalColor[2] = ambient[2] + (color[2]);					
+				
+				pixels[0] = finalColor[0] * 255.0f;
+				pixels[1] = finalColor[1] * 255.0f;
+				pixels[2] = finalColor[2] * 255.0f;
+				pixels[3] = 255;
+			}			
+			
 			for( unsigned int sphere = 0; sphere < num_spheres; ++sphere )
 			{
+#if 1
 				float t;
 				if ( IntersectRaySphere( rayOrigin, rayDirection, sphereOrigin[ sphere ], sphereRadius[ sphere ], &t ) )
 				{
@@ -443,6 +515,7 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 					finalColor[1] = ambient[1] + (ndl * lightColor[1]) * color[1];
 					finalColor[2] = ambient[2] + (ndl * lightColor[2]) * color[2];
 					
+					// clamp colors
 					if ( finalColor[0] > 1 )
 						finalColor[0] = 1;
 					if ( finalColor[1] > 1 )
@@ -455,6 +528,8 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 					pixels[2] = finalColor[2] * 255.0f;
 					pixels[3] = 255;
 				}
+#endif
+
 			}
 
 			
@@ -469,7 +544,7 @@ int main( int argc, char ** argv )
 	// setup a viewport
 	Viewport vp;
 	vp.offset = glm::vec2( 0, 0 );
-	vp.size = glm::vec2( 640, 480 );
+	vp.size = glm::vec2( 800, 600 );
 
 	// print_settings();
 //	fprintf( stdout, "======== Settings ========\n" );

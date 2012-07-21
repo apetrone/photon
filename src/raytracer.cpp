@@ -289,16 +289,16 @@ void renderScene( const Camera & camera, const Viewport & viewport, RenderBuffer
 }
 
 // http://wiki.cgsociety.org/index.php/Ray_Sphere_Intersection
+// this accepts ray origin and sphere origin which it will calculate the new origin from
 bool IntersectRaySphere( const glm::vec3 rayOrigin, const glm::vec3 rayDirection, const glm::vec3 sphereOrigin, float sphereRadius, float * t )
 {
-	glm::vec3 sphere_to_eye = rayOrigin - sphereOrigin;
+	glm::vec3 v = rayOrigin - sphereOrigin;
 	float a = glm::dot( rayDirection, rayDirection );
-	float b = (2.0f * glm::dot( rayDirection, sphere_to_eye));
-	float c = glm::dot( sphere_to_eye, sphere_to_eye ) - (sphereRadius*sphereRadius);
+	float b = 2.0f * glm::dot( rayDirection, v );
+	float c = glm::dot( v, v ) - (sphereRadius*sphereRadius);
 	
 	float det = b * b - 4.0f * a * c;
-	float t0, t1;
-	
+
 	// miss! no intersections
 	if ( det < 0.0f )
 	{
@@ -306,11 +306,15 @@ bool IntersectRaySphere( const glm::vec3 rayOrigin, const glm::vec3 rayDirection
 	}
 	
 	float detsqrt = sqrt( det );
+
+
+#if 0
+	float t0, t1;	
 	float q;
 	
 	if ( b < 0 )
 	{
-		q = ( - b - detsqrt ) * 0.5f;
+		q = ( -b - detsqrt ) * 0.5f;
 	}
 	else
 	{
@@ -336,6 +340,7 @@ bool IntersectRaySphere( const glm::vec3 rayOrigin, const glm::vec3 rayDirection
 	}
 	
 	// if t0  < 0, intersection point is at t1
+	fprintf( stdout, "t0: %g, t1: %g\n", t0, t1 );
 	if ( t0 < 0 )
 	{
 		*t = t1;
@@ -344,7 +349,46 @@ bool IntersectRaySphere( const glm::vec3 rayOrigin, const glm::vec3 rayDirection
 	{
 		*t = t0;
 	}
+#elif 0
+	float rootMin = (-b - detsqrt) / (2.0f * a);
+	float rootMax = (-b + detsqrt) / (2.0f * a);	
 	
+	
+	if ( rootMax < 0.0f )
+	{
+		return false;
+	}
+	else
+	{
+		if ( rootMin < 0.0f )
+		{
+			*t = rootMax;
+		}
+		else
+		{
+			*t = rootMin;
+		}
+	}
+#else
+		float dn = 2*a;
+		
+		float td = (-b - detsqrt) / dn;
+		if ( td > FLT_EPSILON )
+		{
+			*t = td;
+			return true;
+		}
+	
+		td = (-b + detsqrt) / dn;
+	
+		if ( td > FLT_EPSILON )
+		{
+			*t = td;
+			return true;
+		}
+	
+#endif
+
 	return true;
 }
 
@@ -356,34 +400,63 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 	glm::vec3 screenV( 0, 1, 0 );
 	
 	float aspect = (rb.width/(float)rb.height);
+	glm::vec3 lightPosition( 0.0f, 5.0f, 0.0f );
+
+	glm::vec3 sphereOrigin[3] = { glm::vec3( 0, 0, -10.0f ), glm::vec3( -2.3f, 0.2f, -6.0f ), glm::vec3( 1.8f, -0.6f, -3.0f) };
+	float sphereRadius[3] = { 1.0f, 1.0f, 1.0f };
+	unsigned int sphereColor[3] = { Color( 0, 0, 255, 255 ), Color( 255, 0, 0, 255 ), Color( 255, 255, 255, 255 ) };
+	unsigned int num_spheres = 3;
 	
-	
-	glm::vec3 sphereOrigin( 0, 0, -2.0f );
-	float sphereRadius = 1.0f;
-	unsigned int sphereColor = Color( 0, 255, 0, 255 );
+	glm::vec3 ambient( 0.10f, 0.10f, 0.125f );
+	glm::vec3 lightColor( 1.0f, 1.0f, 1.0f );
 	
 	glm::vec3 rayOrigin = eye;
 	unsigned char * pixels = rb.pixels;
-	for( int h = 0; h < rb.height; ++h )
+	for( int h = rb.height; h > 0; --h )
+//	for( int h = 0; h < rb.height; ++h )
 	{
 		for( int w = 0; w < rb.width; ++w )
 		{
 			// we need u and v to be [0,1] inclusive
 			glm::vec3 u = screenU * (((float)w / rb.width) * 2.0f - 1.0f) * aspect;
-			glm::vec3 v = screenV * (((float)h / rb.height) * 2.0f - 1.0f);
-			glm::vec3 rayDirection = view + u + v;
+			glm::vec3 v = screenV * (((float)h / rb.height) * 2.0f - 1.0f);		
+			glm::vec3 rayDirection = glm::normalize(view + u + v);
 
-			float t;
-			if ( IntersectRaySphere( rayOrigin, rayDirection, sphereOrigin, sphereRadius, &t ) )
+			for( unsigned int sphere = 0; sphere < num_spheres; ++sphere )
 			{
-				unsigned int * outColor = (unsigned int*)pixels;
-				*outColor = sphereColor;
+				float t;
+				if ( IntersectRaySphere( rayOrigin, rayDirection, sphereOrigin[ sphere ], sphereRadius[ sphere ], &t ) )
+				{
+					glm::vec3 hit = (rayOrigin + (t*rayDirection) );
+					glm::vec3 normal = glm::normalize(hit - sphereOrigin[sphere]);
+					glm::vec3 lightdir = glm::normalize(lightPosition - hit);
+					
+					float ndl = fmax( 0.0f, glm::dot( lightdir, normal ) );
+
+
+					float color[4];
+					convertColor( sphereColor[ sphere ], color );
+					
+					float finalColor[3] = {0, 0, 0};
+
+					finalColor[0] = ambient[0] + (ndl * lightColor[0]) * color[0];
+					finalColor[1] = ambient[1] + (ndl * lightColor[1]) * color[1];
+					finalColor[2] = ambient[2] + (ndl * lightColor[2]) * color[2];
+					
+					if ( finalColor[0] > 1 )
+						finalColor[0] = 1;
+					if ( finalColor[1] > 1 )
+						finalColor[1] = 1;
+					if ( finalColor[2] > 1 )
+						finalColor[2] = 1;
+
+					pixels[0] = finalColor[0] * 255.0f;
+					pixels[1] = finalColor[1] * 255.0f;
+					pixels[2] = finalColor[2] * 255.0f;
+					pixels[3] = 255;
+				}
 			}
-			else
-			{
-				pixels[0] = pixels[1] = pixels[2] = 32;
-				pixels[3] = 255;
-			}
+
 			
 			pixels += rb.channels;
 		}
@@ -421,11 +494,10 @@ int main( int argc, char ** argv )
 
 	fprintf( stdout, "======== Render Scene ========\n" );
 	
-	clearColor( render_buffer, Color(32, 32, 32, 255) );
-	glm::vec3 eye( 0, 0, 0 );
+	clearColor( render_buffer, Color(128, 128, 128, 255) );
+	glm::vec3 eye( 0, 0, 1 );
 	raytraceScene( eye, render_buffer );
 	
-
 	int save_result = SOIL_save_image( "output/raytracer.bmp", SOIL_SAVE_TYPE_BMP, render_buffer.width, render_buffer.height, render_buffer.channels, render_buffer.pixels );
 	if ( save_result != 1 )
 	{

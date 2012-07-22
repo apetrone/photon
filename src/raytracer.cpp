@@ -412,34 +412,188 @@ bool IntersectRayPlane( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirect
 } // IntersectRayPlane
 
 
-typedef bool (*PrimitiveIntersection)( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, void * primitive, float * t );
+typedef bool (*PrimitiveIntersection)( void * obj, const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t );
+typedef unsigned int (*PrimitiveColor)( void * obj, const glm::vec3 & point );
+typedef glm::vec3 (*PrimitiveNormal)( void * obj, const glm::vec3 & point );
+
 enum 
 {
 	PRIMITIVE_PLANE = 1,
-	PRIMITIVE_SPHERE,
+	PRIMITIVE_SPHERE = 2,
 };
 
 struct Primitive
 {
-	int type;	
+	int type;
 	PrimitiveIntersection intersection;
+	PrimitiveColor colorAtPoint;
+	PrimitiveNormal normalAtPoint;
+	void * data;
+};
+
+struct PlanePrimitive
+{
+	glm::vec3 origin;
+	glm::vec3 normal;
+	unsigned int color;
+};
+
+struct SpherePrimitive
+{
+	glm::vec3 origin;	
+	float radius;
+	unsigned int color;
 };
 
 
 Primitive * _primitives = 0;
 unsigned int _num_primitives = 0;
+unsigned int _current_primitive = 0;
 
+// ----------------------------------------
 void purgePrimitives()
 {
 	for( unsigned int p = 0; p < _num_primitives; ++p )
 	{
 		Primitive * primitive = &_primitives[ p ];
-		
-		
-		
-		
+		if ( primitive->type != 0 )
+		{
+			free(primitive->data);
+		}
+	}
+	free(_primitives);
+	_num_primitives = 0;
+}
+
+void allocPrimitives( unsigned int total_primitives )
+{
+	_primitives = (Primitive*)malloc( total_primitives * sizeof(Primitive) );
+	_num_primitives = total_primitives;
+	_current_primitive = 0;
+	
+	for( unsigned int p = 0; p < _num_primitives; ++p )
+	{
+		Primitive * primitive = &_primitives[ p ];
+		primitive->type = 0;
+		primitive->colorAtPoint = 0;
+		primitive->normalAtPoint = 0;
+		primitive->data = 0;
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+// ----------------------------------------
+// Plane
+bool PlaneIntersection( void * obj, const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t )
+{
+	PlanePrimitive * plane = (PlanePrimitive*)obj;
+	return IntersectRayPlane( rayOrigin, rayDirection, plane->origin, plane->normal, t );
+}
+
+unsigned int PlaneColorAtPoint( void * obj, const glm::vec3 & point )
+{
+	PlanePrimitive * plane = (PlanePrimitive*)obj;
+	return plane->color;
+}
+
+glm::vec3 PlaneNormalAtPoint( void * obj, const glm::vec3 & point )
+{
+	PlanePrimitive * plane = (PlanePrimitive*)obj;
+	return plane->normal;
+}
+
+// ----------------------------------------
+// Sphere
+bool SphereIntersection( void * obj, const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t )
+{
+	SpherePrimitive * sphere = (SpherePrimitive*)obj;
+	return IntersectRaySphere( rayOrigin, rayDirection, sphere->origin, sphere->radius, t );
+}
+
+unsigned SphereColorAtPoint( void * obj, const glm::vec3 & point )
+{
+	SpherePrimitive * sphere = (SpherePrimitive*)obj;
+	return sphere->color;
+}
+
+glm::vec3 SphereNormalAtPoint( void * obj, const glm::vec3 & point )
+{
+	SpherePrimitive * sphere = (SpherePrimitive*)obj;
+	return point - sphere->origin;
+}
+
+// ----------------------------------------
+
+
+void traceScene( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, Primitive ** closestPrimitive, Primitive * ignorePrimitive )
+{
+	*closestPrimitive = 0;
+	Primitive * p;
+	for( unsigned int i = 0; i < _current_primitive; ++i )
+	{
+		p = &_primitives[ i ];
+		
+		if ( p->type == 0 )
+			continue;
+		
+		// ignore these primitives
+		if ( ignorePrimitive != 0 && p == ignorePrimitive )
+			continue;
+		
+		if ( p->intersection( p->data, rayOrigin, rayDirection, t ) )
+		{
+			*closestPrimitive = p;
+		}
+	}
+}
+
+
+Primitive * nextPrimitive()
+{
+	Primitive * p = &_primitives[ _current_primitive++ ];
+	return p;
+}
+
+void addPlane( const glm::vec3 & planeOrigin, const glm::vec3 & planeNormal, unsigned int color )
+{
+	PlanePrimitive * plane = (PlanePrimitive*)malloc( sizeof(PlanePrimitive) );
+	plane->normal = planeNormal;
+	plane->origin = planeOrigin;
+	plane->color = color;
+
+	Primitive * p = nextPrimitive();
+	p->type = PRIMITIVE_PLANE;
+	p->data = plane;
+	p->intersection = PlaneIntersection;
+	p->colorAtPoint = PlaneColorAtPoint;
+	p->normalAtPoint = PlaneNormalAtPoint;
+}
+
+void addSphere( const glm::vec3 & sphereOrigin, float radius, unsigned int color )
+{
+	SpherePrimitive * sphere = (SpherePrimitive*)malloc( sizeof(SpherePrimitive) );
+	sphere->origin = sphereOrigin;
+	sphere->radius = radius;
+	sphere->color = color;
+	
+	Primitive * p = nextPrimitive();
+	p->type = PRIMITIVE_SPHERE;
+	p->data = sphere;
+	p->intersection = SphereIntersection;
+	p->colorAtPoint = SphereColorAtPoint;
+	p->normalAtPoint = SphereNormalAtPoint;
+}
+
+// ----------------------------------------
 
 void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 {
@@ -453,7 +607,6 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 	glm::vec3 sphereOrigin[3] = { glm::vec3( 0, 0, -10.0f ), glm::vec3( -2.3f, 0.2f, -6.0f ), glm::vec3( 1.8f, -0.6f, -3.0f) };
 	float sphereRadius[3] = { 1.0f, 1.0f, 1.0f };
 	unsigned int sphereColor[3] = { Color( 0, 0, 255, 255 ), Color( 255, 0, 0, 255 ), Color( 255, 255, 255, 255 ) };
-	unsigned int num_spheres = 3;
 	
 	glm::vec3 ambient( 0.10f, 0.10f, 0.125f );
 	glm::vec3 lightColor( 1.0f, 1.0f, 1.0f );
@@ -463,8 +616,27 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 	glm::vec3 planeOrigin( 0.0f, -2.0f, 0.0f );
 	unsigned int planeColor = Color( 255, 128, 0, 255 );
 	
+	
+	allocPrimitives( 4 );
+	addPlane( planeOrigin, planeNormal, planeColor );
+	
+	addSphere( sphereOrigin[0], sphereRadius[0], sphereColor[0] );
+	addSphere( sphereOrigin[1], sphereRadius[1], sphereColor[1] );
+	addSphere( sphereOrigin[2], sphereRadius[2], sphereColor[2] );	
+	
 	glm::vec3 rayOrigin = eye;
 	unsigned char * pixels = rb.pixels;
+	
+	float objectColor[4];
+	
+	Primitive * prim = 0;
+	float t;
+	glm::vec3 normal;
+	glm::vec3 lightdir;
+	
+	float backgroundColor[4];
+	convertColor( Color( 128, 128, 128, 255 ), backgroundColor );
+	
 	for( int h = rb.height; h > 0; --h )
 //	for( int h = 0; h < rb.height; ++h )
 	{
@@ -475,67 +647,77 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 			glm::vec3 v = screenV * (((float)h / rb.height) * 2.0f - 1.0f);		
 			glm::vec3 rayDirection = glm::normalize(view + u + v);
 
-			float tp;
-			if ( IntersectRayPlane( rayOrigin, rayDirection, planeOrigin, planeNormal, &tp ) )
+			traceScene( rayOrigin, rayDirection, &t, &prim, 0 );
+			glm::vec3 intersection = rayOrigin + (t*rayDirection);
+			float finalColor[3] = { backgroundColor[0], backgroundColor[1], backgroundColor[2] };
+			if ( prim )
 			{
-				float color[4];
-				convertColor( planeColor, color );
+				lightdir = glm::normalize( lightPosition - intersection );
+				normal = glm::normalize( prim->normalAtPoint( prim->data, intersection ) );
 				
-				float finalColor[3] = {1, 1, 1};
+				float ndl = 1.0f;
 				
-				finalColor[0] = ambient[0] + (color[0]);
-				finalColor[1] = ambient[1] + (color[1]);
-				finalColor[2] = ambient[2] + (color[2]);					
+				finalColor[0] = ambient[0];
+				finalColor[1] = ambient[1];
+				finalColor[2] = ambient[2];
 				
-				pixels[0] = finalColor[0] * 255.0f;
-				pixels[1] = finalColor[1] * 255.0f;
-				pixels[2] = finalColor[2] * 255.0f;
-				pixels[3] = 255;
-			}			
-			
-			for( unsigned int sphere = 0; sphere < num_spheres; ++sphere )
-			{
-#if 1
-				float t;
-				if ( IntersectRaySphere( rayOrigin, rayDirection, sphereOrigin[ sphere ], sphereRadius[ sphere ], &t ) )
+				Primitive * shadow_primitive = 0;
+				float st;
+				traceScene( intersection, lightdir, &st, &shadow_primitive, prim );
+				if ( shadow_primitive )
 				{
-					glm::vec3 hit = (rayOrigin + (t*rayDirection) );
-					glm::vec3 normal = glm::normalize(hit - sphereOrigin[sphere]);
-					glm::vec3 lightdir = glm::normalize(lightPosition - hit);
+					glm::vec3 shadow_int = intersection + lightdir*st;
+					// use the blocker's color to color this pixel
+					convertColor( shadow_primitive->colorAtPoint( shadow_primitive->data, shadow_int), objectColor );
 					
-					float ndl = fmax( 0.0f, glm::dot( lightdir, normal ) );
-
-
-					float color[4];
-					convertColor( sphereColor[ sphere ], color );
-					
-					float finalColor[3] = {0, 0, 0};
-
-					finalColor[0] = ambient[0] + (ndl * lightColor[0]) * color[0];
-					finalColor[1] = ambient[1] + (ndl * lightColor[1]) * color[1];
-					finalColor[2] = ambient[2] + (ndl * lightColor[2]) * color[2];
-					
-					// clamp colors
-					if ( finalColor[0] > 1 )
-						finalColor[0] = 1;
-					if ( finalColor[1] > 1 )
-						finalColor[1] = 1;
-					if ( finalColor[2] > 1 )
-						finalColor[2] = 1;
-
-					pixels[0] = finalColor[0] * 255.0f;
-					pixels[1] = finalColor[1] * 255.0f;
-					pixels[2] = finalColor[2] * 255.0f;
-					pixels[3] = 255;
+					// use ambient color as shadow
+					objectColor[0] = ambient[0];
+					objectColor[1] = ambient[1];
+					objectColor[2] = ambient[2];
 				}
-#endif
+				else
+				{
+					Primitive * reflected = 0;
 
+					// calculate reflected vector
+//					glm::vec3 r = glm::reflect( rayDirection, normal );
+//					traceScene( intersection, r, &st, &reflected, prim );
+					if ( reflected )
+					{
+						convertColor( reflected->colorAtPoint( reflected->data, intersection ), objectColor );
+					}
+					else
+					{
+						convertColor( prim->colorAtPoint( prim->data, intersection ), objectColor );
+					}
+					
+					ndl = fmax( 0.0f, glm::dot( lightdir, normal ) );
+				}
+			
+				
+				finalColor[0] += (ndl * lightColor[0]) * objectColor[0];
+				finalColor[1] += (ndl * lightColor[1]) * objectColor[1];
+				finalColor[2] += (ndl * lightColor[2]) * objectColor[2];
 			}
 
+			// clamp colors
+			if ( finalColor[0] > 1 )
+				finalColor[0] = 1;
+			if ( finalColor[1] > 1 )
+				finalColor[1] = 1;
+			if ( finalColor[2] > 1 )
+				finalColor[2] = 1;
 			
+			pixels[0] = finalColor[0] * 255.0f;
+			pixels[1] = finalColor[1] * 255.0f;
+			pixels[2] = finalColor[2] * 255.0f;
+			pixels[3] = 255;			
 			pixels += rb.channels;
 		}
 	}
+	
+	
+	purgePrimitives();
 }
 
 
@@ -544,7 +726,7 @@ int main( int argc, char ** argv )
 	// setup a viewport
 	Viewport vp;
 	vp.offset = glm::vec2( 0, 0 );
-	vp.size = glm::vec2( 800, 600 );
+	vp.size = glm::vec2( 512, 512 );
 
 	// print_settings();
 //	fprintf( stdout, "======== Settings ========\n" );
@@ -569,7 +751,7 @@ int main( int argc, char ** argv )
 
 	fprintf( stdout, "======== Render Scene ========\n" );
 	
-	clearColor( render_buffer, Color(128, 128, 128, 255) );
+//	clearColor( render_buffer, Color(128, 128, 128, 255) );
 	glm::vec3 eye( 0, 0, 1 );
 	raytraceScene( eye, render_buffer );
 	

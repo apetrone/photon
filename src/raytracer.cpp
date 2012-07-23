@@ -412,6 +412,126 @@ bool IntersectRayPlane( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirect
 } // IntersectRayPlane
 
 
+
+
+
+
+
+// ----------------------------------------
+// Material
+
+typedef unsigned int (*MaterialColor)( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
+
+enum
+{
+	MATERIAL_LAMBERT = 1,	
+};
+
+struct Material
+{
+	int type;
+	void * data;
+	
+	
+	
+	MaterialColor colorAtPoint;
+};
+
+Material * _materials = 0;
+unsigned int _num_materials = 0;
+unsigned int _current_material = 0;
+
+
+struct LambertMaterial
+{
+	unsigned int color;
+};
+
+struct MirrorMaterial
+{
+	int id;
+};
+
+
+unsigned int LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
+unsigned int MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
+
+
+
+Material * nextMaterial()
+{
+	if ( _current_material >= _num_materials )
+	{
+		fprintf( stdout, "Reached MAX materials! (%i)\n", _num_materials );
+		return 0;
+	}
+	
+	Material * m = &_materials[ _current_material++ ];
+	return m;
+}
+
+void allocMaterials( unsigned int max_materials )
+{
+	_materials = (Material*)malloc( sizeof(Material) * max_materials );
+	_current_material = 0;	
+	_num_materials = max_materials;
+	
+	
+	for( unsigned int m = 0; m < _num_materials; ++m )
+	{
+		Material * material = &_materials[ m ];
+		material->type = 0;
+		material->colorAtPoint = 0;
+		material->data = 0;
+	}
+}
+
+void purgeMaterials()
+{
+	for( unsigned int p = 0; p < _num_materials; ++p )
+	{
+		Material * material = &_materials[ p ];
+		if ( material->type != 0 )
+		{
+			free( material->data );
+		}
+	}
+	free(_materials);
+	_num_materials = 0;
+}
+
+
+Material * createLambertMaterial( unsigned int color )
+{
+	LambertMaterial * mat = (LambertMaterial*)malloc( sizeof(LambertMaterial) );
+	mat->color = color;
+	
+	
+	Material * m = nextMaterial();
+	if ( m )
+	{
+		m->data = mat;
+		m->colorAtPoint = LambertColorAtPoint;
+	}
+	
+	return m;
+}
+
+Material * createMirrorMaterial()
+{
+	MirrorMaterial * mat = (MirrorMaterial*)malloc( sizeof(MirrorMaterial) );
+
+	Material * m = nextMaterial();
+	if ( m )
+	{
+		m->data = mat;
+		m->colorAtPoint = MirrorColorAtPoint;
+	}
+	return m;
+}
+
+
+// ----------------------------------------
 typedef bool (*PrimitiveIntersection)( void * obj, const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t );
 typedef unsigned int (*PrimitiveColor)( void * obj, const glm::vec3 & point );
 typedef glm::vec3 (*PrimitiveNormal)( void * obj, const glm::vec3 & point );
@@ -428,6 +548,8 @@ struct Primitive
 	PrimitiveIntersection intersection;
 	PrimitiveColor colorAtPoint;
 	PrimitiveNormal normalAtPoint;
+	
+	Material * material;
 	void * data;
 };
 
@@ -449,6 +571,56 @@ struct SpherePrimitive
 Primitive * _primitives = 0;
 unsigned int _num_primitives = 0;
 unsigned int _current_primitive = 0;
+
+
+
+void traceScene( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, Primitive ** closestPrimitive, Primitive * ignorePrimitive )
+{
+	*closestPrimitive = 0;
+	Primitive * p;
+	for( unsigned int i = 0; i < _current_primitive; ++i )
+	{
+		p = &_primitives[ i ];
+		
+		if ( p->type == 0 )
+			continue;
+		
+		// ignore these primitives
+		if ( ignorePrimitive != 0 && p == ignorePrimitive )
+			continue;
+		
+		if ( p->intersection( p->data, rayOrigin, rayDirection, t ) )
+		{
+			*closestPrimitive = p;
+		}
+	}
+}
+
+
+
+unsigned int LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
+{
+	LambertMaterial * m = (LambertMaterial*)primitive->material->data;
+	return m->color;
+}
+
+unsigned int MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
+{
+//	MirrorMaterial * m = (MirrorMaterial*)primitive->material->data;
+	
+	float t;
+	Primitive * p;
+	glm::vec3 r = glm::normalize( glm::reflect(id, normal) );
+	traceScene( point, r, &t, &p, primitive );
+
+	if ( p )
+	{
+		glm::vec3 reflect_hit = point + (t * r);
+		return p->material->colorAtPoint( p, reflect_hit, p->normalAtPoint( p->data, reflect_hit ), r );
+	}
+	
+	return Color( 128, 128, 128, 255 );
+}
 
 // ----------------------------------------
 void purgePrimitives()
@@ -475,9 +647,9 @@ void allocPrimitives( unsigned int total_primitives )
 	{
 		Primitive * primitive = &_primitives[ p ];
 		primitive->type = 0;
-		primitive->colorAtPoint = 0;
 		primitive->normalAtPoint = 0;
 		primitive->data = 0;
+		primitive->material = 0;
 	}
 }
 
@@ -499,12 +671,6 @@ bool PlaneIntersection( void * obj, const glm::vec3 & rayOrigin, const glm::vec3
 	return IntersectRayPlane( rayOrigin, rayDirection, plane->origin, plane->normal, t );
 }
 
-unsigned int PlaneColorAtPoint( void * obj, const glm::vec3 & point )
-{
-	PlanePrimitive * plane = (PlanePrimitive*)obj;
-	return plane->color;
-}
-
 glm::vec3 PlaneNormalAtPoint( void * obj, const glm::vec3 & point )
 {
 	PlanePrimitive * plane = (PlanePrimitive*)obj;
@@ -519,12 +685,6 @@ bool SphereIntersection( void * obj, const glm::vec3 & rayOrigin, const glm::vec
 	return IntersectRaySphere( rayOrigin, rayDirection, sphere->origin, sphere->radius, t );
 }
 
-unsigned SphereColorAtPoint( void * obj, const glm::vec3 & point )
-{
-	SpherePrimitive * sphere = (SpherePrimitive*)obj;
-	return sphere->color;
-}
-
 glm::vec3 SphereNormalAtPoint( void * obj, const glm::vec3 & point )
 {
 	SpherePrimitive * sphere = (SpherePrimitive*)obj;
@@ -534,63 +694,53 @@ glm::vec3 SphereNormalAtPoint( void * obj, const glm::vec3 & point )
 // ----------------------------------------
 
 
-void traceScene( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, Primitive ** closestPrimitive, Primitive * ignorePrimitive )
-{
-	*closestPrimitive = 0;
-	Primitive * p;
-	for( unsigned int i = 0; i < _current_primitive; ++i )
-	{
-		p = &_primitives[ i ];
-		
-		if ( p->type == 0 )
-			continue;
-		
-		// ignore these primitives
-		if ( ignorePrimitive != 0 && p == ignorePrimitive )
-			continue;
-		
-		if ( p->intersection( p->data, rayOrigin, rayDirection, t ) )
-		{
-			*closestPrimitive = p;
-		}
-	}
-}
 
 
 Primitive * nextPrimitive()
 {
+	if ( _current_primitive >= _num_primitives )
+	{
+		fprintf( stdout, "Reached MAX primitives! (%i)\n", _num_primitives );
+		return 0;
+	}
+	
 	Primitive * p = &_primitives[ _current_primitive++ ];
 	return p;
 }
 
-void addPlane( const glm::vec3 & planeOrigin, const glm::vec3 & planeNormal, unsigned int color )
+void addPlane( const glm::vec3 & planeOrigin, const glm::vec3 & planeNormal, Material * material )
 {
 	PlanePrimitive * plane = (PlanePrimitive*)malloc( sizeof(PlanePrimitive) );
 	plane->normal = planeNormal;
 	plane->origin = planeOrigin;
-	plane->color = color;
+
 
 	Primitive * p = nextPrimitive();
-	p->type = PRIMITIVE_PLANE;
-	p->data = plane;
-	p->intersection = PlaneIntersection;
-	p->colorAtPoint = PlaneColorAtPoint;
-	p->normalAtPoint = PlaneNormalAtPoint;
+	if ( p )
+	{
+		p->type = PRIMITIVE_PLANE;
+		p->data = plane;
+		p->intersection = PlaneIntersection;
+		p->normalAtPoint = PlaneNormalAtPoint;
+		p->material = material;
+	}
 }
 
-void addSphere( const glm::vec3 & sphereOrigin, float radius, unsigned int color )
+void addSphere( const glm::vec3 & sphereOrigin, float radius, Material * material )
 {
 	SpherePrimitive * sphere = (SpherePrimitive*)malloc( sizeof(SpherePrimitive) );
 	sphere->origin = sphereOrigin;
 	sphere->radius = radius;
-	sphere->color = color;
 	
 	Primitive * p = nextPrimitive();
-	p->type = PRIMITIVE_SPHERE;
-	p->data = sphere;
-	p->intersection = SphereIntersection;
-	p->colorAtPoint = SphereColorAtPoint;
-	p->normalAtPoint = SphereNormalAtPoint;
+	if ( p )
+	{
+		p->type = PRIMITIVE_SPHERE;
+		p->data = sphere;
+		p->intersection = SphereIntersection;
+		p->normalAtPoint = SphereNormalAtPoint;
+		p->material = material;
+	}
 }
 
 // ----------------------------------------
@@ -606,23 +756,28 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 
 	glm::vec3 sphereOrigin[3] = { glm::vec3( 0, 0, -10.0f ), glm::vec3( -2.3f, 0.2f, -6.0f ), glm::vec3( 1.8f, -0.6f, -3.0f) };
 	float sphereRadius[3] = { 1.0f, 1.0f, 1.0f };
-	unsigned int sphereColor[3] = { Color( 0, 0, 255, 255 ), Color( 255, 0, 0, 255 ), Color( 255, 255, 255, 255 ) };
-	
+
 	glm::vec3 ambient( 0.10f, 0.10f, 0.125f );
 	glm::vec3 lightColor( 1.0f, 1.0f, 1.0f );
-	
-	
+		
 	glm::vec3 planeNormal( 0.0f, 1.0f, 0.0f );
 	glm::vec3 planeOrigin( 0.0f, -2.0f, 0.0f );
-	unsigned int planeColor = Color( 255, 128, 0, 255 );
-	
-	
+
 	allocPrimitives( 4 );
-	addPlane( planeOrigin, planeNormal, planeColor );
+	allocMaterials( 16 );
 	
-	addSphere( sphereOrigin[0], sphereRadius[0], sphereColor[0] );
-	addSphere( sphereOrigin[1], sphereRadius[1], sphereColor[1] );
-	addSphere( sphereOrigin[2], sphereRadius[2], sphereColor[2] );	
+	
+	Material * redMaterial = createLambertMaterial( Color( 255, 0, 0, 255 ) );
+	Material * greenMaterial = createLambertMaterial( Color( 0, 255, 0, 255 ) );
+	Material * blueMaterial = createLambertMaterial( Color( 0, 0, 255, 255 ) );
+	Material * whiteMaterial = createLambertMaterial( Color( 255, 255, 255, 255 ) );
+	Material * mirrorMaterial = createMirrorMaterial();
+	
+	addPlane( planeOrigin, planeNormal, greenMaterial );
+	
+	addSphere( sphereOrigin[0], sphereRadius[0], blueMaterial );
+	addSphere( sphereOrigin[1], sphereRadius[1], redMaterial );
+	addSphere( sphereOrigin[2], sphereRadius[2], mirrorMaterial );
 	
 	glm::vec3 rayOrigin = eye;
 	unsigned char * pixels = rb.pixels;
@@ -667,8 +822,6 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 				if ( shadow_primitive )
 				{
 					glm::vec3 shadow_int = intersection + lightdir*st;
-					// use the blocker's color to color this pixel
-					convertColor( shadow_primitive->colorAtPoint( shadow_primitive->data, shadow_int), objectColor );
 					
 					// use ambient color as shadow
 					objectColor[0] = ambient[0];
@@ -677,20 +830,7 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 				}
 				else
 				{
-					Primitive * reflected = 0;
-
-					// calculate reflected vector
-//					glm::vec3 r = glm::reflect( rayDirection, normal );
-//					traceScene( intersection, r, &st, &reflected, prim );
-					if ( reflected )
-					{
-						convertColor( reflected->colorAtPoint( reflected->data, intersection ), objectColor );
-					}
-					else
-					{
-						convertColor( prim->colorAtPoint( prim->data, intersection ), objectColor );
-					}
-					
+					convertColor( prim->material->colorAtPoint( prim, intersection, normal, rayDirection ), objectColor );					
 					ndl = fmax( 0.0f, glm::dot( lightdir, normal ) );
 				}
 			
@@ -718,6 +858,7 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 	
 	
 	purgePrimitives();
+	purgeMaterials();
 }
 
 

@@ -567,6 +567,14 @@ struct SpherePrimitive
 	unsigned int color;
 };
 
+struct SceneContext
+{
+	unsigned int background_color;
+	int current_trace_depth;
+	int max_trace_depth;
+};
+
+static SceneContext scene;
 
 Primitive * _primitives = 0;
 unsigned int _num_primitives = 0;
@@ -574,10 +582,18 @@ unsigned int _current_primitive = 0;
 
 
 
-void traceScene( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, Primitive ** closestPrimitive, Primitive * ignorePrimitive )
+void rayTrace( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, Primitive ** closestPrimitive, Primitive * ignorePrimitive )
 {
+	if ( scene.current_trace_depth >= scene.max_trace_depth )
+	{
+		fprintf( stdout, "Reached max trace depth!\n" );
+		return;
+	}
+	
+	scene.current_trace_depth++;
 	*closestPrimitive = 0;
 	Primitive * p;
+	float min_distance = FLT_MAX;
 	for( unsigned int i = 0; i < _current_primitive; ++i )
 	{
 		p = &_primitives[ i ];
@@ -591,9 +607,19 @@ void traceScene( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, fl
 		
 		if ( p->intersection( p->data, rayOrigin, rayDirection, t ) )
 		{
-			*closestPrimitive = p;
+			// find the closest primitive
+			// filter against *t greater than FLT_EPSILON to remove some artifacts
+			glm::vec3 origin_to_hit = (rayOrigin + rayDirection*(*t));
+			origin_to_hit = origin_to_hit - rayOrigin;
+			float distance = glm::length( origin_to_hit );
+			if ( distance < min_distance && (*t) > FLT_EPSILON )
+			{
+				min_distance = distance;
+				*closestPrimitive = p;
+			}
 		}
 	}
+	scene.current_trace_depth--;
 }
 
 
@@ -611,7 +637,7 @@ unsigned int MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 &
 	float t;
 	Primitive * p;
 	glm::vec3 r = glm::normalize( glm::reflect(id, normal) );
-	traceScene( point, r, &t, &p, primitive );
+	rayTrace( point, r, &t, &p, primitive );
 
 	if ( p )
 	{
@@ -619,7 +645,7 @@ unsigned int MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 &
 		return p->material->colorAtPoint( p, reflect_hit, p->normalAtPoint( p->data, reflect_hit ), r );
 	}
 	
-	return Color( 128, 128, 128, 255 );
+	return scene.background_color;
 }
 
 // ----------------------------------------
@@ -745,7 +771,7 @@ void addSphere( const glm::vec3 & sphereOrigin, float radius, Material * materia
 
 // ----------------------------------------
 
-void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
+void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 {
 	glm::vec3 view( 0.0f, 0.0f, -1.0f );
 	glm::vec3 screenU( 1, 0, 0 );
@@ -790,7 +816,7 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 	glm::vec3 lightdir;
 	
 	float backgroundColor[4];
-	convertColor( Color( 128, 128, 128, 255 ), backgroundColor );
+	convertColor( scene.background_color, backgroundColor );
 	
 	for( int h = rb.height; h > 0; --h )
 //	for( int h = 0; h < rb.height; ++h )
@@ -802,7 +828,7 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 			glm::vec3 v = screenV * (((float)h / rb.height) * 2.0f - 1.0f);		
 			glm::vec3 rayDirection = glm::normalize(view + u + v);
 
-			traceScene( rayOrigin, rayDirection, &t, &prim, 0 );
+			rayTrace( rayOrigin, rayDirection, &t, &prim, 0 );
 			glm::vec3 intersection = rayOrigin + (t*rayDirection);
 			float finalColor[3] = { backgroundColor[0], backgroundColor[1], backgroundColor[2] };
 			if ( prim )
@@ -818,7 +844,7 @@ void raytraceScene( glm::vec3 & eye, RenderBuffer & rb )
 				
 				Primitive * shadow_primitive = 0;
 				float st;
-				traceScene( intersection, lightdir, &st, &shadow_primitive, prim );
+				rayTrace( intersection, lightdir, &st, &shadow_primitive, prim );
 				if ( shadow_primitive )
 				{
 					glm::vec3 shadow_int = intersection + lightdir*st;
@@ -869,6 +895,10 @@ int main( int argc, char ** argv )
 	vp.offset = glm::vec2( 0, 0 );
 	vp.size = glm::vec2( 512, 512 );
 
+	scene.background_color = Color( 0, 0, 0, 255 );
+	scene.current_trace_depth = 0;
+	scene.max_trace_depth = 8;
+	
 	// print_settings();
 //	fprintf( stdout, "======== Settings ========\n" );
 //	fprintf( stdout, "\tperpsective_correct: %i\n", settings().perspective_correct );
@@ -891,10 +921,8 @@ int main( int argc, char ** argv )
 	
 
 	fprintf( stdout, "======== Render Scene ========\n" );
-	
-//	clearColor( render_buffer, Color(128, 128, 128, 255) );
 	glm::vec3 eye( 0, 0, 1 );
-	raytraceScene( eye, render_buffer );
+	render_scene( eye, render_buffer );
 	
 	int save_result = SOIL_save_image( "output/raytracer.bmp", SOIL_SAVE_TYPE_BMP, render_buffer.width, render_buffer.height, render_buffer.channels, render_buffer.pixels );
 	if ( save_result != 1 )

@@ -594,6 +594,10 @@ void rayTrace( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, floa
 	*closestPrimitive = 0;
 	Primitive * p;
 	float min_distance = FLT_MAX;
+	
+//	glm::vec3 origin(FLT_EPSILON, FLT_EPSILON, FLT_EPSILON);
+//	origin += rayOrigin;
+	
 	for( unsigned int i = 0; i < _current_primitive; ++i )
 	{
 		p = &_primitives[ i ];
@@ -780,15 +784,11 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	float aspect = (rb.width/(float)rb.height);
 	glm::vec3 lightPosition( 0.0f, 5.0f, 0.0f );
 
-	glm::vec3 sphereOrigin[3] = { glm::vec3( 0, 0, -10.0f ), glm::vec3( -2.3f, 0.2f, -6.0f ), glm::vec3( 1.8f, -0.6f, -3.0f) };
-	float sphereRadius[3] = { 1.0f, 1.0f, 1.0f };
 
 	glm::vec3 ambient( 0.10f, 0.10f, 0.125f );
 	glm::vec3 lightColor( 1.0f, 1.0f, 1.0f );
+	glm::vec3 lightSpecular( 1.0f, 0.0f, 1.0f );
 		
-	glm::vec3 planeNormal( 0.0f, 1.0f, 0.0f );
-	glm::vec3 planeOrigin( 0.0f, -2.0f, 0.0f );
-
 	allocPrimitives( 4 );
 	allocMaterials( 16 );
 	
@@ -799,11 +799,11 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	Material * whiteMaterial = createLambertMaterial( Color( 255, 255, 255, 255 ) );
 	Material * mirrorMaterial = createMirrorMaterial();
 	
-	addPlane( planeOrigin, planeNormal, greenMaterial );
+	addPlane( glm::vec3( 0.0f, -2.0f, 0.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ), greenMaterial );
 	
-	addSphere( sphereOrigin[0], sphereRadius[0], blueMaterial );
-	addSphere( sphereOrigin[1], sphereRadius[1], redMaterial );
-	addSphere( sphereOrigin[2], sphereRadius[2], mirrorMaterial );
+	addSphere( glm::vec3( 0, 0, -10.0f ), 1.0f, blueMaterial );
+	addSphere( glm::vec3( -2.0f, 0.2f, -4.0f ), 1.0f, redMaterial );
+	addSphere( glm::vec3( 1.8f, -0.6f, -2.0f), 1.0f, mirrorMaterial );
 	
 	glm::vec3 rayOrigin = eye;
 	unsigned char * pixels = rb.pixels;
@@ -857,13 +857,23 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 				else
 				{
 					convertColor( prim->material->colorAtPoint( prim, intersection, normal, rayDirection ), objectColor );					
-					ndl = fmax( 0.0f, glm::dot( lightdir, normal ) );
+					ndl = glm::clamp( glm::dot( lightdir, normal ), 0.0f, 1.0f );
 				}
 			
+				// diffuse = (ndl * lightColor) * objectColor;
+//				finalColor[0] += (ndl * lightColor[0]) * objectColor[0];
+//				finalColor[1] += (ndl * lightColor[1]) * objectColor[1];
+//				finalColor[2] += (ndl * lightColor[2]) * objectColor[2];
 				
-				finalColor[0] += (ndl * lightColor[0]) * objectColor[0];
-				finalColor[1] += (ndl * lightColor[1]) * objectColor[1];
-				finalColor[2] += (ndl * lightColor[2]) * objectColor[2];
+				// phong = diffuse * (L dot N) + specular * (V dot R) * N
+				glm::vec3 R = glm::reflect( lightdir, normal );				
+				float i = glm::pow( glm::clamp( glm::dot(rayDirection,R), 0.0f, 1.0f ), 80.0f);
+				
+				float n = 1.0f;
+				finalColor[0] += (ndl * lightColor[0]) * objectColor[0] + i*lightSpecular[0]*n;
+				finalColor[1] += (ndl * lightColor[1]) * objectColor[1] + i*lightSpecular[1]*n;
+				finalColor[2] += (ndl * lightColor[2]) * objectColor[2] + i*lightSpecular[2]*n;
+				
 			}
 
 			// clamp colors

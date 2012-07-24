@@ -661,24 +661,18 @@ glm::vec4 rayTraceColor( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirec
 	return fcolor;	
 }
 
-
-
-
-glm::vec4 LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
+glm::vec4 phongLighting( glm::vec4 diffuseColor, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
 {
-	LambertMaterial * m = (LambertMaterial*)primitive->material->data;
-	float n = 0.75f;
-	float diffuseColor[4];
-	convertColor( m->color, diffuseColor );
 	glm::vec4 color;
-	
 	Light * light;
+	float specularLevel = 0.75f;
+	float specularPower = 75.0f;	
 	for( int light_num = 0; light_num < MAX_LIGHTS; ++light_num )
 	{
 		light = &scene.lights[ light_num ];
 		if ( !light->enabled )
 			continue;
-
+		
 		glm::vec3 light_direction = glm::normalize(light->origin - point);
 		
 		float nDotL = glm::clamp( glm::dot(glm::normalize(normal), light_direction), 0.0f, 1.0f );
@@ -690,15 +684,14 @@ glm::vec4 LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & p
 			float t;
 			shadow_prim = rayTracePrimitive( point, light_direction, &t, false );
 		}
-
+		
 		glm::vec3 R = glm::reflect( light_direction, normal );
-		float specularPower = 75.0f;
 		float i = glm::pow( glm::clamp( glm::dot(id,R), 0.0f, 1.0f ), specularPower );
 		glm::vec3 light_color = light->color;
 		
-		color.r += light->intensity * (nDotL * light_color[0] * diffuseColor[0]) + i*light->specular[0]*n;
-		color.g += light->intensity * (nDotL * light_color[1] * diffuseColor[1]) + i*light->specular[1]*n;
-		color.b += light->intensity * (nDotL * light_color[2] * diffuseColor[2]) + i*light->specular[2]*n;
+		color.r += light->intensity * (nDotL * light_color[0] * diffuseColor[0]) + i*light->specular[0]*specularLevel;
+		color.g += light->intensity * (nDotL * light_color[1] * diffuseColor[1]) + i*light->specular[1]*specularLevel;
+		color.b += light->intensity * (nDotL * light_color[2] * diffuseColor[2]) + i*light->specular[2]*specularLevel;
 		
 		// if the shadow probe found geometry; multiply to create a shadow
 		if ( shadow_prim )
@@ -706,9 +699,24 @@ glm::vec4 LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & p
 			color.r *= 0.5;
 			color.g *= 0.5;
 			color.b *= 0.5;
-		}		
+		}
 	}
 	
+	
+	return color;
+}
+
+
+glm::vec4 LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
+{
+	LambertMaterial * m = (LambertMaterial*)primitive->material->data;
+
+	glm::vec4 diffuseColor;
+	convertColor( m->color, &diffuseColor[0] );
+	glm::vec4 color;
+	
+	color = phongLighting( diffuseColor, point, normal, id );
+		
 	color.a = 1;
 	return color;
 }
@@ -719,17 +727,29 @@ glm::vec4 MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & po
 
 	
 	float t;
-	Primitive * p;
+	Primitive * p = 0;
 	glm::vec3 r = glm::normalize( glm::reflect(id, normal) );
-	return rayTraceColor( point, r );
+	
+	
+	p = rayTracePrimitive( point, r, &t, true );
+//	glm::vec4 diffuseColor = rayTraceColor( point, r );
+//	return phongLighting( diffuseColor, point, normal, id );
+	
+	
+//	return rayTraceColor( point, r );
 	//rayTrace( point, r, &t, &p, primitive );
 
 	if ( p )
 	{
-		glm::vec3 reflect_hit = point + (t * r);
-		return p->material->colorAtPoint( p, reflect_hit, p->normalAtPoint( p->data, reflect_hit ), r );
+//		glm::vec3 reflect_hit = point + (t * r);
+//		return p->material->colorAtPoint( p, reflect_hit, p->normalAtPoint( p->data, reflect_hit ), r );
+		glm::vec4 diffuseColor = rayTraceColor( point, r );
+		return diffuseColor;
+//		return phongLighting( diffuseColor, point, normal, id );
+		
 	}
 
+//	return glm::vec4(0,0,0,1);
 	return scene.background_color;
 }
 

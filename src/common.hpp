@@ -71,6 +71,14 @@ struct Triangle
 void barycentric_coords( const glm::vec2 & p, const glm::vec2 & a, const glm::vec2 & b, const glm::vec2 & c, float * alpha, float * beta, float * gamma );
 
 
+inline void convertColor( unsigned int color, float out[4] )
+{
+	out[3] = ((color >> 24) & 0xFF) / 255.0;
+	out[2] = ((color >> 16) & 0xFF) / 255.0;
+	out[1] = ((color >> 8) & 0xFF) / 255.0;
+	out[0] = (color & 0xFF) / 255.0;
+}
+
 inline unsigned int Color( unsigned char _r, unsigned char _g, unsigned char _b, unsigned char _a )
 {
 	return (_r | _g << 8 | _b << 16 | _a << 24 );
@@ -78,15 +86,15 @@ inline unsigned int Color( unsigned char _r, unsigned char _g, unsigned char _b,
 
 inline unsigned int scaleColor( unsigned int a, float t )
 {
-	float ac[] = { (a & 0xFF), ((a >> 8) & 0xFF), ((a >> 16) & 0xFF), ( (a >> 24) & 0xFF) };
+	float c[4];
+	convertColor( a, c );
 	
-	return (int(t*ac[0]) ) | (int(t*ac[1]) << 8) | (int(t*ac[2]) << 16) | (int(t*ac[3]) << 24);
-}
-
-inline void convertColor( unsigned int color, float out[4] )
-{
-	out[3] = ((color >> 24) & 0xFF) / 255.0;
-	out[2] = ((color >> 16) & 0xFF) / 255.0;
-	out[1] = ((color >> 8) & 0xFF) / 255.0;
-	out[0] = (color & 0xFF) / 255.0;
+	c[0] *= t;
+	c[1] *= t;
+	c[2] *= t;
+	c[3] = 1.0;
+	
+//	float ac[] = { (a & 0xFF), ((a >> 8) & 0xFF), ((a >> 16) & 0xFF), ( (a >> 24) & 0xFF) };
+	
+	return (int(255*c[0]) ) | (int(255*c[1]) << 8) | (int(255*c[2]) << 16) | (int(255) << 24);
 }

@@ -225,68 +225,6 @@ void normalizedDeviceCoordsToScreen( const glm::vec2 & ndc, glm::vec2 & screenpo
 }
 
 
-void renderScene( const Camera & camera, const Viewport & viewport, RenderBuffer & rb )
-{
-	clearColor( rb, Color(0,0,0,255) );
-	clearDepth( rb, 256 );
-	
-	glm::vec3 lightposition( 0.0, -0.0, 0.25 );
-	glm::mat3 normal_matrix = glm::inverseTranspose( glm::mat3( camera.modelview ) );
-	light_position_eye = glm::vec3(camera.modelview * glm::vec4(lightposition, 1.0) );
-	
-	Triangle * t = triangles;
-	// for every object visible in the scene
-	for( int i = 0; i < num_triangles; ++i )
-	{
-		// convert verts into eye space (space of the camera, in this regard)
-//		PVEC3( t->v[0].position );
-		
-		t->v[0].eye = camera.modelview * glm::vec4( t->v[0].position, 1.0 );
-		t->v[1].eye = camera.modelview * glm::vec4( t->v[1].position, 1.0 );	
-		t->v[2].eye = camera.modelview * glm::vec4( t->v[2].position, 1.0 );
-//		PVEC4( t->v[0].eye );
-		
-		// convert triangle to clip space (projection)
-		// this places the coordinates in [-1, 1] clip space
-		t->v[0].clip = camera.projection * t->v[0].eye;
-		t->v[1].clip = camera.projection * t->v[1].eye;
-		t->v[2].clip = camera.projection * t->v[2].eye;	
-//		PVEC4( t->v[0].clip );
-		
-		// divide by w, convert to normalized device coordinates [0, 1]
-		t->v[0].ndc = t->v[0].clip * (1/t->v[0].clip.w);
-		t->v[1].ndc = t->v[1].clip * (1/t->v[1].clip.w);
-		t->v[2].ndc = t->v[2].clip * (1/t->v[2].clip.w);
-//		PVEC4( t->v[0].ndc );
-		
-		// convert triangle to screen coordinates; [viewport.offset - viewport.size]
-		normalizedDeviceCoordsToScreen( glm::vec2(t->v[0].ndc), t->v[0].screen, viewport );
-		normalizedDeviceCoordsToScreen( glm::vec2(t->v[1].ndc), t->v[1].screen, viewport );
-		normalizedDeviceCoordsToScreen( glm::vec2(t->v[2].ndc), t->v[2].screen, viewport );
-//		PVEC2( t->v[0].screen );		
-		
-		// also transform nomals into eye space
-		t->v[0].normal_eye = normal_matrix * t->v[0].normal;
-		t->v[1].normal_eye = normal_matrix * t->v[1].normal;
-		t->v[2].normal_eye = normal_matrix * t->v[2].normal;
-		
-		// perform culling
-		glm::vec3 edge1 = glm::vec3(t->v[1].ndc - t->v[0].ndc);
-		glm::vec3 edge2 = glm::vec3(t->v[2].ndc - t->v[0].ndc);
-		glm::vec3 normal = glm::normalize( glm::cross( edge2, edge1 ) );
-		
-		if ( !settings().backface_culling )
-			normal.z = 1;
-		
-		// TODO: this test should eventually dot normal and the inverted view vector from the camera
-		// currently works fine if camera is viewing down -Z axis.
-		if ( normal.z > 0 )
-		{		
-			renderTriangle( rb, t );
-		}
-		t++;
-	}
-}
 
 // http://wiki.cgsociety.org/index.php/Ray_Sphere_Intersection
 // this accepts ray origin and sphere origin which it will calculate the new origin from
@@ -420,7 +358,7 @@ bool IntersectRayPlane( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirect
 // ----------------------------------------
 // Material
 
-typedef unsigned int (*MaterialColor)( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
+typedef glm::vec4 (*MaterialColor)( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
 
 enum
 {
@@ -453,8 +391,8 @@ struct MirrorMaterial
 };
 
 
-unsigned int LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
-unsigned int MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
+glm::vec4 LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
+glm::vec4 MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
 
 
 
@@ -567,11 +505,26 @@ struct SpherePrimitive
 	unsigned int color;
 };
 
+
+struct Light
+{
+	glm::vec3 color;
+	glm::vec3 origin;
+	glm::vec3 specular;
+	int enabled;
+	float intensity; // normalized intensity
+};
+
+
+const int MAX_LIGHTS = 2;
 struct SceneContext
 {
-	unsigned int background_color;
+	glm::vec4 background_color;
 	int current_trace_depth;
 	int max_trace_depth;
+	
+	glm::vec4 ambient;
+	Light lights[ MAX_LIGHTS ];
 };
 
 static SceneContext scene;
@@ -595,8 +548,8 @@ void rayTrace( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, floa
 	Primitive * p;
 	float min_distance = FLT_MAX;
 	
-//	glm::vec3 origin(FLT_EPSILON, FLT_EPSILON, FLT_EPSILON);
-//	origin += rayOrigin;
+	glm::vec3 origin(FLT_EPSILON, FLT_EPSILON, FLT_EPSILON);
+	origin += rayOrigin;
 	
 	for( unsigned int i = 0; i < _current_primitive; ++i )
 	{
@@ -609,12 +562,12 @@ void rayTrace( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, floa
 		if ( ignorePrimitive != 0 && p == ignorePrimitive )
 			continue;
 		
-		if ( p->intersection( p->data, rayOrigin, rayDirection, t ) )
+		if ( p->intersection( p->data, origin, rayDirection, t ) )
 		{
 			// find the closest primitive
 			// filter against *t greater than FLT_EPSILON to remove some artifacts
-			glm::vec3 origin_to_hit = (rayOrigin + rayDirection*(*t));
-			origin_to_hit = origin_to_hit - rayOrigin;
+			glm::vec3 origin_to_hit = (origin + rayDirection*(*t));
+			origin_to_hit = origin_to_hit - origin;
 			float distance = glm::length( origin_to_hit );
 			if ( distance < min_distance && (*t) > FLT_EPSILON )
 			{
@@ -626,29 +579,157 @@ void rayTrace( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, floa
 	scene.current_trace_depth--;
 }
 
-
-
-unsigned int LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
+Primitive * rayTracePrimitive( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, bool find_closest )
 {
-	LambertMaterial * m = (LambertMaterial*)primitive->material->data;
-	return m->color;
+	// if find_closest is false, it will immediately return the first result it finds...
+	Primitive * closestPrimitive = 0;
+	Primitive * p;
+	float min_distance = FLT_MAX;
+	float closest_t = 0;
+	float e = (FLT_EPSILON*500.0);
+	glm::vec3 origin = rayOrigin + (rayDirection*e);
+	for( unsigned int i = 0; i < _current_primitive; ++i )
+	{
+		p = &_primitives[ i ];
+		
+		if ( p->type == 0 )
+			continue;
+		
+		float local_t;
+		if ( p->intersection( p->data, origin, rayDirection, &local_t ) )
+		{
+			// find the closest primitive
+			// filter against *t greater than FLT_EPSILON to remove some artifacts
+			glm::vec3 origin_to_hit = (origin + rayDirection*local_t);
+			origin_to_hit = origin_to_hit - origin;
+			float distance = glm::length( origin_to_hit );
+			if ( (distance < min_distance) && (local_t > FLT_EPSILON) )
+			{
+				min_distance = distance;
+				closestPrimitive = p;
+				closest_t = local_t;
+			}
+			
+			if ( !find_closest )
+				break;
+		}
+	}
+	
+	*t = closest_t;
+	
+	return closestPrimitive;
 }
 
-unsigned int MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
+glm::vec4 rayTraceColor( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection )
+{
+	if ( scene.current_trace_depth >= scene.max_trace_depth )
+	{
+		fprintf( stdout, "Reached max trace depth!\n" );
+		return scene.background_color;
+	}
+	
+	scene.current_trace_depth++;
+	float t;
+	Primitive * closestPrimitive = rayTracePrimitive( rayOrigin, rayDirection, &t, true );
+	
+	glm::vec4 fcolor(0,0,0,1);
+	if ( closestPrimitive )
+	{
+		fcolor = scene.ambient;
+		Light * light;
+		for( int light_num = 0; light_num < MAX_LIGHTS; ++light_num )
+		{
+			light = &scene.lights[ light_num ];
+			if ( !light->enabled )
+				continue;
+			glm::vec3 hit = (rayOrigin + rayDirection*t);
+			glm::vec3 normal = closestPrimitive->normalAtPoint( closestPrimitive->data, hit );
+			glm::vec4 color = closestPrimitive->material->colorAtPoint( closestPrimitive, hit, normal, rayDirection );			
+			fcolor.r += color.r;
+			fcolor.g += color.g;
+			fcolor.b += color.b;
+		}
+
+		fcolor.a = 1.0f;
+	}
+	else
+	{
+		fcolor = scene.background_color;
+	}
+
+	scene.current_trace_depth--;
+	return fcolor;	
+}
+
+
+
+
+glm::vec4 LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
+{
+	LambertMaterial * m = (LambertMaterial*)primitive->material->data;
+	float n = 0.75f;
+	float diffuseColor[4];
+	convertColor( m->color, diffuseColor );
+	glm::vec4 color;
+	
+	Light * light;
+	for( int light_num = 0; light_num < MAX_LIGHTS; ++light_num )
+	{
+		light = &scene.lights[ light_num ];
+		if ( !light->enabled )
+			continue;
+
+		glm::vec3 light_direction = glm::normalize(light->origin - point);
+		
+		float nDotL = glm::clamp( glm::dot(glm::normalize(normal), light_direction), 0.0f, 1.0f );
+		
+		// only send a shadow probe ray if the normal is facing the light
+		Primitive * shadow_prim = 0;
+		if ( nDotL > 0.0 )
+		{
+			float t;
+			shadow_prim = rayTracePrimitive( point, light_direction, &t, false );
+		}
+
+		glm::vec3 R = glm::reflect( light_direction, normal );
+		float specularPower = 75.0f;
+		float i = glm::pow( glm::clamp( glm::dot(id,R), 0.0f, 1.0f ), specularPower );
+		glm::vec3 light_color = light->color;
+		
+		color.r += light->intensity * (nDotL * light_color[0] * diffuseColor[0]) + i*light->specular[0]*n;
+		color.g += light->intensity * (nDotL * light_color[1] * diffuseColor[1]) + i*light->specular[1]*n;
+		color.b += light->intensity * (nDotL * light_color[2] * diffuseColor[2]) + i*light->specular[2]*n;
+		
+		// if the shadow probe found geometry; multiply to create a shadow
+		if ( shadow_prim )
+		{
+			color.r *= 0.5;
+			color.g *= 0.5;
+			color.b *= 0.5;
+		}		
+	}
+	
+	color.a = 1;
+	return color;
+}
+
+glm::vec4 MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
 {
 //	MirrorMaterial * m = (MirrorMaterial*)primitive->material->data;
+
 	
 	float t;
 	Primitive * p;
 	glm::vec3 r = glm::normalize( glm::reflect(id, normal) );
-	rayTrace( point, r, &t, &p, primitive );
+	return rayTraceColor( point, r );
+	//rayTrace( point, r, &t, &p, primitive );
 
 	if ( p )
 	{
 		glm::vec3 reflect_hit = point + (t * r);
 		return p->material->colorAtPoint( p, reflect_hit, p->normalAtPoint( p->data, reflect_hit ), r );
 	}
-	
+
 	return scene.background_color;
 }
 
@@ -782,12 +863,7 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	glm::vec3 screenV( 0, 1, 0 );
 	
 	float aspect = (rb.width/(float)rb.height);
-	glm::vec3 lightPosition( 0.0f, 5.0f, 0.0f );
 
-
-	glm::vec3 ambient( 0.10f, 0.10f, 0.125f );
-	glm::vec3 lightColor( 1.0f, 1.0f, 1.0f );
-	glm::vec3 lightSpecular( 1.0f, 0.0f, 1.0f );
 		
 	allocPrimitives( 4 );
 	allocMaterials( 16 );
@@ -797,6 +873,7 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	Material * greenMaterial = createLambertMaterial( Color( 0, 255, 0, 255 ) );
 	Material * blueMaterial = createLambertMaterial( Color( 0, 0, 255, 255 ) );
 	Material * whiteMaterial = createLambertMaterial( Color( 255, 255, 255, 255 ) );
+	Material * yellowMaterial = createLambertMaterial( Color( 255, 255, 0, 255 ) );	
 	Material * mirrorMaterial = createMirrorMaterial();
 	
 	addPlane( glm::vec3( 0.0f, -2.0f, 0.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ), greenMaterial );
@@ -815,9 +892,6 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	glm::vec3 normal;
 	glm::vec3 lightdir;
 	
-	float backgroundColor[4];
-	convertColor( scene.background_color, backgroundColor );
-	
 	for( int h = rb.height; h > 0; --h )
 //	for( int h = 0; h < rb.height; ++h )
 	{
@@ -828,6 +902,7 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 			glm::vec3 v = screenV * (((float)h / rb.height) * 2.0f - 1.0f);		
 			glm::vec3 rayDirection = glm::normalize(view + u + v);
 
+#if 0
 			rayTrace( rayOrigin, rayDirection, &t, &prim, 0 );
 			glm::vec3 intersection = rayOrigin + (t*rayDirection);
 			float finalColor[3] = { backgroundColor[0], backgroundColor[1], backgroundColor[2] };
@@ -883,10 +958,25 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 				finalColor[1] = 1;
 			if ( finalColor[2] > 1 )
 				finalColor[2] = 1;
+#endif
 			
-			pixels[0] = finalColor[0] * 255.0f;
-			pixels[1] = finalColor[1] * 255.0f;
-			pixels[2] = finalColor[2] * 255.0f;
+			
+			glm::vec4 color = rayTraceColor( rayOrigin, rayDirection );
+
+			if ( color[0] > 1 )
+				color[0] = 1;
+			if ( color[1] > 1 )
+				color[1] = 1;
+			if ( color[2] > 1 )
+				color[2] = 1;
+			
+			pixels[0] = color[0] * 255.0f;
+			pixels[1] = color[1] * 255.0f;
+			pixels[2] = color[2] * 255.0f;			
+
+//			pixels[0] = finalColor[0] * 255.0f;
+//			pixels[1] = finalColor[1] * 255.0f;
+//			pixels[2] = finalColor[2] * 255.0f;
 			pixels[3] = 255;			
 			pixels += rb.channels;
 		}
@@ -905,9 +995,28 @@ int main( int argc, char ** argv )
 	vp.offset = glm::vec2( 0, 0 );
 	vp.size = glm::vec2( 512, 512 );
 
-	scene.background_color = Color( 0, 0, 0, 255 );
+	scene.background_color = glm::vec4( 0.5f, 0.5f, 0.5f, 1.0f );
 	scene.current_trace_depth = 0;
 	scene.max_trace_depth = 8;
+	
+	// setup lights in the scene
+	scene.ambient = glm::vec4( 0.10f, 0.10f, 0.125f, 1.0f );
+	Light * light;
+	
+	light = &scene.lights[0];
+	light->enabled = 1;
+	light->intensity = 0.5f;
+	light->color = glm::vec3( 1, 1, 1 );
+	light->origin = glm::vec3( 0, 5, 0 );
+	light->specular = glm::vec3( 1.0f, 1.0f, 1.0f );
+	
+	light = &scene.lights[1];
+	light->enabled = 1;
+	light->intensity = 0.5f;
+	light->color = glm::vec3( 1.0f, 0.0f, 0.0f );
+	light->origin = glm::vec3( 5, 5, -5 );
+	light->specular = glm::vec3( 1.0f, 0.0f, 0.0f );
+	
 	
 	// print_settings();
 //	fprintf( stdout, "======== Settings ========\n" );

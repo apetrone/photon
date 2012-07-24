@@ -11,7 +11,8 @@ kind "ConsoleApp"
 files
 {
 	"src/raytracer.cpp",
-	"src/common.hpp"
+	"src/common.hpp",
+	"src/common.cpp"
 }
 
 includedirs

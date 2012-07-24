@@ -83,140 +83,6 @@ glm::vec4 texture2D( Texture * texture, const glm::vec2 & uv )
 
 
 
-void clearColor( RenderBuffer & rb, unsigned int color )
-{
-	unsigned char * p = rb.pixels;
-	for( int h = 0; h < rb.height; ++h )
-	{
-		for( int w = 0; w < rb.width; ++w )
-		{
-			p[0] = (color) & 0xFF;
-			p[1] = (color >> 8) & 0xFF;
-			p[2] = (color >> 16) & 0xFF;
-			p[3] = (color >> 24) & 0xFF;
-			
-			p += rb.channels;
-		}
-	}
-}
-
-void clearDepth( RenderBuffer & rb, float value )
-{
-	for( int h = 0; h < rb.height; ++h )
-	{
-		for( int w = 0; w < rb.width; ++w )
-		{
-			rb.zbuffer[ (h * rb.width) + w ] = value;
-		}
-	}
-}
-
-
-void renderTriangle( RenderBuffer & rb, Triangle * t )
-{	
-	// find the bounding rect of the triangle in screen space	
-	glm::vec2 mins(rb.width, rb.height), maxs;
-	for( int i = 0; i < 3; ++i )
-	{
-		if ( t->v[i].screen.x < mins.x )
-			mins.x = t->v[i].screen.x;
-		if ( t->v[i].screen.y < mins.y )
-			mins.y = t->v[i].screen.y;
-		if ( t->v[i].screen.x > maxs.x )
-			maxs.x = t->v[i].screen.x;
-		if ( t->v[i].screen.y > maxs.y )
-			maxs.y = t->v[i].screen.y;		
-	}
-
-	mins.x = floor(mins.x);
-	mins.y = floor(mins.y);
-	maxs.x = floor(maxs.x);
-	maxs.y = floor(maxs.y);	
-
-	//fminf( fminf( t->v[0].screen.x, t->v[1].screen.x ), t->v[2].screen.x );
-	glm::vec3 light_dirA = light_position_eye - glm::vec3(t->v[0].eye);
-	glm::vec3 light_dirB = light_position_eye - glm::vec3(t->v[1].eye);
-	glm::vec3 light_dirC = light_position_eye - glm::vec3(t->v[2].eye);
-
-	unsigned int idx;
-	for( unsigned int py = mins.y; py < maxs.y; ++py )
-	{
-		for( unsigned int px = mins.x; px < maxs.x; ++px )
-		{
-			idx = (py * rb.width) + (px);
-			unsigned char * pixel = &rb.pixels[ idx * rb.channels ];
-			float alpha, beta, gamma;
-			glm::vec2 point = glm::vec2(0.5f + px, 0.5f + py);
-			barycentric_coords( point, t->v[0].screen, t->v[1].screen, t->v[2].screen, &alpha, &beta, &gamma );
-
-			// determine if this pixel resides in the triangle or not
-			if ( alpha >= 0 && alpha <= 1 && beta >= 0 && beta <= 1 && gamma >= 0 && gamma <= 1 )
-			{
-				// interpolate the value of w (clip space) at this pixel
-//				w is not affine in screen space, but 1/w is (identical to z-view)
-				float invw = (1 / t->v[0].clip.w) * alpha + (1/t->v[1].clip.w) * beta + (1/t->v[2].clip.w) * gamma;
-				
-				// package the w values up
-				float w[] = { t->v[0].clip.w, t->v[1].clip.w, t->v[2].clip.w };
-				
-				if ( !settings().perspective_correct )
-				{
-					invw = 1;
-					w[2] = w[1] = w[0] = 1;
-				}
-				
-//				fprintf( stdout, "w: %g %g %g\n", w[0], w[1], w[2] );
-				
-				// calculate the depth value
-				float depth = (t->v[0].ndc.z * alpha + t->v[1].ndc.z * beta + t->v[2].ndc.z * gamma);
-				// perform a depth test
-				if ( depth < rb.zbuffer[ idx ] )
-				{
-					rb.zbuffer[ idx ] = depth;
-					glm::vec3 vertex_to_light = glm::normalize( light_position_eye - glm::vec3( (((t->v[0].eye/w[0]) * alpha) + ((t->v[1].eye/w[1]) * beta) + ((t->v[2].eye/w[2]) * gamma))/invw ) );
-					glm::vec3 normal = glm::normalize((((t->v[0].normal_eye/w[0]) * alpha + ((t->v[1].normal_eye/w[1]) * beta) + ((t->v[2].normal_eye/w[2]) * gamma))) / invw );
-					float ndl = fmax(0.0f, glm::dot( normal, vertex_to_light ) );
-					if ( !settings().lighting )
-						ndl = 1.0;
-					
-					glm::vec4 texel;
-					if ( t->texture && settings().texture_mapping )
-					{
-						float u = (((t->v[0].u/w[0]) * alpha) + ((t->v[1].u/w[1]) * beta) + ((t->v[2].u/w[2]) * gamma)) / invw;
-						float v = (((t->v[0].v/w[0]) * alpha) + ((t->v[1].v/w[1]) * beta) + ((t->v[2].v/w[2]) * gamma)) / invw;
-						
-						// perform texture lookup
-						texel = texture2D( t->texture, glm::vec2(u,v) );
-					}
-					else
-					{
-						// interpolate the color
-						float cA[4];
-						float cB[4];
-						float cC[4];						
-						convertColor( t->v[0].color, cA );
-						convertColor( t->v[1].color, cB );
-						convertColor( t->v[2].color, cC );
-						
-						
-						float r = ((cA[0]/w[0]) * alpha + (cB[0]/w[1]) * beta + (cC[0]/w[2]) * gamma) / invw;
-						float g = ((cA[1]/w[0]) * alpha + (cB[1]/w[1]) * beta + (cC[1]/w[2]) * gamma) / invw;
-						float b = ((cA[2]/w[0]) * alpha + (cB[2]/w[1]) * beta + (cC[2]/w[2]) * gamma) / invw;
-						float a = ((cA[3]/w[0]) * alpha + (cB[3]/w[1]) * beta + (cC[3]/w[2]) * gamma) / invw;		
-						texel = glm::vec4( r*255, g*255, b*255, a*255 );
-					}
-
-					pixel[0] = texel[0] * ndl;
-					pixel[1] = texel[1] * ndl;
-					pixel[2] = texel[2] * ndl;
-					pixel[3] = texel[3];
-				}
-			}
-		}
-	}
-
-}
-
 void normalizedDeviceCoordsToScreen( const glm::vec2 & ndc, glm::vec2 & screenpos, const Viewport & viewport )
 {
 	//http://stackoverflow.com/questions/8491247/c-opengl-convert-world-coords-to-screen2d-coords
@@ -380,20 +246,35 @@ unsigned int _num_materials = 0;
 unsigned int _current_material = 0;
 
 
-struct LambertMaterial
+struct PhongMaterial
 {
 	unsigned int color;
+	float specular_power;
+	float specular_level;
 };
 
 struct MirrorMaterial
 {
-	int id;
+	unsigned int color;
+	float reflectance;
+	float specular_power;
+	float specular_level;	
+};
+
+
+struct RefractiveMaterial
+{
+	unsigned int color;
+	float refractive_index;
+	float refractance;
+	float specular_power;
+	float specular_level;	
 };
 
 
 glm::vec4 LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
 glm::vec4 MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
-
+glm::vec4 RefractiveColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id );
 
 
 Material * nextMaterial()
@@ -439,10 +320,12 @@ void purgeMaterials()
 }
 
 
-Material * createLambertMaterial( unsigned int color )
+Material * createPhongMaterial( unsigned int color, float specularPower, float specularLevel )
 {
-	LambertMaterial * mat = (LambertMaterial*)malloc( sizeof(LambertMaterial) );
+	PhongMaterial * mat = (PhongMaterial*)malloc( sizeof(PhongMaterial) );
 	mat->color = color;
+	mat->specular_power = specularPower;
+	mat->specular_level = specularLevel;
 	
 	
 	Material * m = nextMaterial();
@@ -455,9 +338,13 @@ Material * createLambertMaterial( unsigned int color )
 	return m;
 }
 
-Material * createMirrorMaterial()
+Material * createMirrorMaterial( unsigned int color, float reflectance, float specularPower, float specularLevel )
 {
 	MirrorMaterial * mat = (MirrorMaterial*)malloc( sizeof(MirrorMaterial) );
+	mat->color = color;
+	mat->reflectance = reflectance;
+	mat->specular_power = specularPower;
+	mat->specular_level = specularLevel;
 
 	Material * m = nextMaterial();
 	if ( m )
@@ -468,6 +355,20 @@ Material * createMirrorMaterial()
 	return m;
 }
 
+Material * createRefractiveMaterial( unsigned int color, float refractive_index )
+{
+	RefractiveMaterial * mat = (RefractiveMaterial*)malloc( sizeof(RefractiveMaterial) );
+	mat->color = color;
+	mat->refractive_index = refractive_index;
+
+	Material * m = nextMaterial();
+	if ( m )
+	{
+		m->data = mat;
+		m->colorAtPoint = RefractiveColorAtPoint;
+	}
+	return m;
+}
 
 // ----------------------------------------
 typedef bool (*PrimitiveIntersection)( void * obj, const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t );
@@ -484,7 +385,6 @@ struct Primitive
 {
 	int type;
 	PrimitiveIntersection intersection;
-	PrimitiveColor colorAtPoint;
 	PrimitiveNormal normalAtPoint;
 	
 	Material * material;
@@ -533,51 +433,6 @@ Primitive * _primitives = 0;
 unsigned int _num_primitives = 0;
 unsigned int _current_primitive = 0;
 
-
-
-void rayTrace( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, Primitive ** closestPrimitive, Primitive * ignorePrimitive )
-{
-	if ( scene.current_trace_depth >= scene.max_trace_depth )
-	{
-		fprintf( stdout, "Reached max trace depth!\n" );
-		return;
-	}
-	
-	scene.current_trace_depth++;
-	*closestPrimitive = 0;
-	Primitive * p;
-	float min_distance = FLT_MAX;
-	
-	glm::vec3 origin(FLT_EPSILON, FLT_EPSILON, FLT_EPSILON);
-	origin += rayOrigin;
-	
-	for( unsigned int i = 0; i < _current_primitive; ++i )
-	{
-		p = &_primitives[ i ];
-		
-		if ( p->type == 0 )
-			continue;
-		
-		// ignore these primitives
-		if ( ignorePrimitive != 0 && p == ignorePrimitive )
-			continue;
-		
-		if ( p->intersection( p->data, origin, rayDirection, t ) )
-		{
-			// find the closest primitive
-			// filter against *t greater than FLT_EPSILON to remove some artifacts
-			glm::vec3 origin_to_hit = (origin + rayDirection*(*t));
-			origin_to_hit = origin_to_hit - origin;
-			float distance = glm::length( origin_to_hit );
-			if ( distance < min_distance && (*t) > FLT_EPSILON )
-			{
-				min_distance = distance;
-				*closestPrimitive = p;
-			}
-		}
-	}
-	scene.current_trace_depth--;
-}
 
 Primitive * rayTracePrimitive( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, bool find_closest )
 {
@@ -642,9 +497,11 @@ glm::vec4 rayTraceColor( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirec
 			light = &scene.lights[ light_num ];
 			if ( !light->enabled )
 				continue;
+
 			glm::vec3 hit = (rayOrigin + rayDirection*t);
 			glm::vec3 normal = closestPrimitive->normalAtPoint( closestPrimitive->data, hit );
-			glm::vec4 color = closestPrimitive->material->colorAtPoint( closestPrimitive, hit, normal, rayDirection );			
+			glm::vec4 color = closestPrimitive->material->colorAtPoint( closestPrimitive, hit, normal, rayDirection );
+
 			fcolor.r += color.r;
 			fcolor.g += color.g;
 			fcolor.b += color.b;
@@ -661,12 +518,10 @@ glm::vec4 rayTraceColor( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirec
 	return fcolor;	
 }
 
-glm::vec4 phongLighting( glm::vec4 diffuseColor, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
+glm::vec4 phongLighting( glm::vec4 diffuseColor, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id, float specularPower, float specularLevel )
 {
 	glm::vec4 color;
-	Light * light;
-	float specularLevel = 0.75f;
-	float specularPower = 75.0f;	
+	Light * light;	
 	for( int light_num = 0; light_num < MAX_LIGHTS; ++light_num )
 	{
 		light = &scene.lights[ light_num ];
@@ -709,13 +564,14 @@ glm::vec4 phongLighting( glm::vec4 diffuseColor, const glm::vec3 & point, const 
 
 glm::vec4 LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
 {
-	LambertMaterial * m = (LambertMaterial*)primitive->material->data;
+	PhongMaterial * m = (PhongMaterial*)primitive->material->data;
 
 	glm::vec4 diffuseColor;
 	convertColor( m->color, &diffuseColor[0] );
 	glm::vec4 color;
 	
-	color = phongLighting( diffuseColor, point, normal, id );
+
+	color = phongLighting( diffuseColor, point, normal, id, m->specular_power, m->specular_level );
 		
 	color.a = 1;
 	return color;
@@ -723,34 +579,73 @@ glm::vec4 LambertColorAtPoint( struct Primitive * primitive, const glm::vec3 & p
 
 glm::vec4 MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
 {
-//	MirrorMaterial * m = (MirrorMaterial*)primitive->material->data;
-
+	MirrorMaterial * m = (MirrorMaterial*)primitive->material->data;
 	
 	float t;
 	Primitive * p = 0;
 	glm::vec3 r = glm::normalize( glm::reflect(id, normal) );
 	
-	
-	p = rayTracePrimitive( point, r, &t, true );
-//	glm::vec4 diffuseColor = rayTraceColor( point, r );
-//	return phongLighting( diffuseColor, point, normal, id );
-	
-	
-//	return rayTraceColor( point, r );
-	//rayTrace( point, r, &t, &p, primitive );
+	glm::vec4 matColor;
 
+	convertColor( m->color, &matColor[0] );
+
+	// probe and see if the reflected vector hits anything
+	p = rayTracePrimitive( point, r, &t, true );
+	glm::vec4 diffuseColor;
+
+	float rdn = 0;
+	// it does, we'll add that object's diffuse color
 	if ( p )
 	{
-//		glm::vec3 reflect_hit = point + (t * r);
-//		return p->material->colorAtPoint( p, reflect_hit, p->normalAtPoint( p->data, reflect_hit ), r );
-		glm::vec4 diffuseColor = rayTraceColor( point, r );
-		return diffuseColor;
-//		return phongLighting( diffuseColor, point, normal, id );
-		
+		diffuseColor = rayTraceColor( point, r );
+
+		// scale the reflected color based on the angle between reflection and surface normal
+		rdn = m->reflectance * fmax( 0.0f, glm::dot(r, glm::normalize(normal)) );
 	}
 
-//	return glm::vec4(0,0,0,1);
-	return scene.background_color;
+	glm::vec4 myColor = phongLighting( matColor, point, normal, id, m->specular_power, m->specular_level );
+
+	glm::vec4 outColor = myColor + (rdn * diffuseColor);
+
+
+	outColor.a = 1;
+	return outColor;
+}
+
+
+glm::vec4 RefractiveColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
+{
+	RefractiveMaterial * m = (RefractiveMaterial*)primitive->material->data;
+	
+	float t;
+	Primitive * p = 0;
+	glm::vec3 r = glm::normalize( glm::reflect(id, normal) );
+	
+	glm::vec4 matColor;
+
+	convertColor( m->color, &matColor[0] );
+
+	// probe and see if the reflected vector hits anything
+	p = rayTracePrimitive( point, r, &t, true );
+	glm::vec4 diffuseColor;
+
+	float rdn = 0;
+	// it does, we'll add that object's diffuse color
+	if ( p )
+	{
+		diffuseColor = rayTraceColor( point, r );
+
+		// scale the reflected color based on the angle between reflection and surface normal
+		rdn = 0.5f * fmax( 0.0f, glm::dot(r, glm::normalize(normal)) );
+	}
+
+	glm::vec4 myColor = phongLighting( matColor, point, normal, id, 75.0f, 0.75f );
+
+	glm::vec4 outColor = myColor + (rdn * diffuseColor);
+
+
+	outColor.a = 1;
+	return outColor;
 }
 
 // ----------------------------------------
@@ -885,22 +780,24 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	float aspect = (rb.width/(float)rb.height);
 
 		
-	allocPrimitives( 4 );
+	allocPrimitives( 8 );
 	allocMaterials( 16 );
 	
 	
-	Material * redMaterial = createLambertMaterial( Color( 255, 0, 0, 255 ) );
-	Material * greenMaterial = createLambertMaterial( Color( 0, 255, 0, 255 ) );
-	Material * blueMaterial = createLambertMaterial( Color( 0, 0, 255, 255 ) );
-	Material * whiteMaterial = createLambertMaterial( Color( 255, 255, 255, 255 ) );
-	Material * yellowMaterial = createLambertMaterial( Color( 255, 255, 0, 255 ) );	
-	Material * mirrorMaterial = createMirrorMaterial();
+	Material * redMaterial = createPhongMaterial( Color( 255, 0, 0, 255 ), 75.0f, 0.75f );
+	Material * greenMaterial = createPhongMaterial( Color( 0, 255, 0, 255 ), 75.0f, 0.75f );
+	Material * blueMaterial = createPhongMaterial( Color( 0, 0, 255, 255 ), 75.0f, 0.75f );
+	Material * whiteMaterial = createPhongMaterial( Color( 255, 255, 255, 255 ), 75.0f, 0.75f );
+	Material * yellowMaterial = createPhongMaterial( Color( 255, 255, 0, 255 ), 75.0f, 0.75f );	
+	Material * mirrorMaterial = createMirrorMaterial( Color(0, 0, 0, 255 ), 0.5f, 100.0f, 1.0f );
+	Material * refraction = createRefractiveMaterial( Color( 0, 0, 0, 255), 1.30 );
 	
 	addPlane( glm::vec3( 0.0f, -2.0f, 0.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ), greenMaterial );
 	
 	addSphere( glm::vec3( 0, 0, -10.0f ), 1.0f, blueMaterial );
 	addSphere( glm::vec3( -2.0f, 0.2f, -4.0f ), 1.0f, redMaterial );
 	addSphere( glm::vec3( 1.8f, -0.6f, -2.0f), 1.0f, mirrorMaterial );
+	addSphere( glm::vec3( -2.75f, -1.0f, -1.0f), 1.0f, yellowMaterial );
 	
 	glm::vec3 rayOrigin = eye;
 	unsigned char * pixels = rb.pixels;
@@ -922,65 +819,6 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 			glm::vec3 v = screenV * (((float)h / rb.height) * 2.0f - 1.0f);		
 			glm::vec3 rayDirection = glm::normalize(view + u + v);
 
-#if 0
-			rayTrace( rayOrigin, rayDirection, &t, &prim, 0 );
-			glm::vec3 intersection = rayOrigin + (t*rayDirection);
-			float finalColor[3] = { backgroundColor[0], backgroundColor[1], backgroundColor[2] };
-			if ( prim )
-			{
-				lightdir = glm::normalize( lightPosition - intersection );
-				normal = glm::normalize( prim->normalAtPoint( prim->data, intersection ) );
-				
-				float ndl = 1.0f;
-				
-				finalColor[0] = ambient[0];
-				finalColor[1] = ambient[1];
-				finalColor[2] = ambient[2];
-				
-				Primitive * shadow_primitive = 0;
-				float st;
-				rayTrace( intersection, lightdir, &st, &shadow_primitive, prim );
-				if ( shadow_primitive )
-				{
-					glm::vec3 shadow_int = intersection + lightdir*st;
-					
-					// use ambient color as shadow
-					objectColor[0] = ambient[0];
-					objectColor[1] = ambient[1];
-					objectColor[2] = ambient[2];
-				}
-				else
-				{
-					convertColor( prim->material->colorAtPoint( prim, intersection, normal, rayDirection ), objectColor );					
-					ndl = glm::clamp( glm::dot( lightdir, normal ), 0.0f, 1.0f );
-				}
-			
-				// diffuse = (ndl * lightColor) * objectColor;
-//				finalColor[0] += (ndl * lightColor[0]) * objectColor[0];
-//				finalColor[1] += (ndl * lightColor[1]) * objectColor[1];
-//				finalColor[2] += (ndl * lightColor[2]) * objectColor[2];
-				
-				// phong = diffuse * (L dot N) + specular * (V dot R) * N
-				glm::vec3 R = glm::reflect( lightdir, normal );				
-				float i = glm::pow( glm::clamp( glm::dot(rayDirection,R), 0.0f, 1.0f ), 80.0f);
-				
-				float n = 1.0f;
-				finalColor[0] += (ndl * lightColor[0]) * objectColor[0] + i*lightSpecular[0]*n;
-				finalColor[1] += (ndl * lightColor[1]) * objectColor[1] + i*lightSpecular[1]*n;
-				finalColor[2] += (ndl * lightColor[2]) * objectColor[2] + i*lightSpecular[2]*n;
-				
-			}
-
-			// clamp colors
-			if ( finalColor[0] > 1 )
-				finalColor[0] = 1;
-			if ( finalColor[1] > 1 )
-				finalColor[1] = 1;
-			if ( finalColor[2] > 1 )
-				finalColor[2] = 1;
-#endif
-			
-			
 			glm::vec4 color = rayTraceColor( rayOrigin, rayDirection );
 
 			if ( color[0] > 1 )
@@ -992,11 +830,7 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 			
 			pixels[0] = color[0] * 255.0f;
 			pixels[1] = color[1] * 255.0f;
-			pixels[2] = color[2] * 255.0f;			
-
-//			pixels[0] = finalColor[0] * 255.0f;
-//			pixels[1] = finalColor[1] * 255.0f;
-//			pixels[2] = finalColor[2] * 255.0f;
+			pixels[2] = color[2] * 255.0f;
 			pixels[3] = 255;			
 			pixels += rb.channels;
 		}

@@ -355,12 +355,15 @@ Material * createMirrorMaterial( unsigned int color, float reflectance, float sp
 	return m;
 }
 
-Material * createRefractiveMaterial( unsigned int color, float refractive_index )
+Material * createRefractiveMaterial( unsigned int color, float refractive_index, float refractance, float specularPower, float specularLevel )
 {
 	RefractiveMaterial * mat = (RefractiveMaterial*)malloc( sizeof(RefractiveMaterial) );
 	mat->color = color;
 	mat->refractive_index = refractive_index;
-
+	mat->specular_power = specularPower;
+	mat->specular_level = specularLevel;
+	mat->refractance = refractance;
+	
 	Material * m = nextMaterial();
 	if ( m )
 	{
@@ -434,7 +437,7 @@ unsigned int _num_primitives = 0;
 unsigned int _current_primitive = 0;
 
 
-Primitive * rayTracePrimitive( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, bool find_closest )
+Primitive * rayTracePrimitive( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirection, float * t, bool find_closest, Primitive * ignorePrimitive )
 {
 	// if find_closest is false, it will immediately return the first result it finds...
 	Primitive * closestPrimitive = 0;
@@ -449,6 +452,11 @@ Primitive * rayTracePrimitive( const glm::vec3 & rayOrigin, const glm::vec3 & ra
 		
 		if ( p->type == 0 )
 			continue;
+		
+		if ( ignorePrimitive && p == ignorePrimitive )
+		{
+			continue;
+		}
 		
 		float local_t;
 		if ( p->intersection( p->data, origin, rayDirection, &local_t ) )
@@ -485,7 +493,7 @@ glm::vec4 rayTraceColor( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirec
 	
 	scene.current_trace_depth++;
 	float t;
-	Primitive * closestPrimitive = rayTracePrimitive( rayOrigin, rayDirection, &t, true );
+	Primitive * closestPrimitive = rayTracePrimitive( rayOrigin, rayDirection, &t, true, 0 );
 	
 	glm::vec4 fcolor(0,0,0,1);
 	if ( closestPrimitive )
@@ -537,7 +545,7 @@ glm::vec4 phongLighting( glm::vec4 diffuseColor, const glm::vec3 & point, const 
 		if ( nDotL > 0.0 )
 		{
 			float t;
-			shadow_prim = rayTracePrimitive( point, light_direction, &t, false );
+			shadow_prim = rayTracePrimitive( point, light_direction, &t, false, 0 );
 		}
 		
 		glm::vec3 R = glm::reflect( light_direction, normal );
@@ -590,7 +598,7 @@ glm::vec4 MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & po
 	convertColor( m->color, &matColor[0] );
 
 	// probe and see if the reflected vector hits anything
-	p = rayTracePrimitive( point, r, &t, true );
+	p = rayTracePrimitive( point, r, &t, true, 0 );
 	glm::vec4 diffuseColor;
 
 	float rdn = 0;
@@ -612,6 +620,26 @@ glm::vec4 MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & po
 	return outColor;
 }
 
+glm::vec3 reflection_vector( const glm::vec3 & normal, const glm::vec3 & incident )
+{
+	float cosI = glm::dot( normal, incident );
+	return incident - 2 * cosI * normal;
+}
+
+bool refraction_vector( const glm::vec3 & normal, const glm::vec3 & incident, float n1, float n2, glm::vec3 & refraction )
+{
+	float n = (n1/n2);
+	float cosI = -glm::dot( normal, incident );
+	float sinT2 = n*n * (1.0 - cosI * cosI);
+	if ( sinT2 > 1.0 )
+	{
+		// invalid vector!
+		return false;
+	}
+	
+	refraction = glm::normalize( (n * incident) - (n + sqrtf(1.0f - sinT2)) * normal);
+	return true;
+}
 
 glm::vec4 RefractiveColorAtPoint( struct Primitive * primitive, const glm::vec3 & point, const glm::vec3 & normal, const glm::vec3 & id )
 {
@@ -619,27 +647,39 @@ glm::vec4 RefractiveColorAtPoint( struct Primitive * primitive, const glm::vec3 
 	
 	float t;
 	Primitive * p = 0;
-	glm::vec3 r = glm::normalize( glm::reflect(id, normal) );
+	
+	
+	float n1 = 1.0f;
+	float n2 = 1.0f; //m->refractive_index;	
 	
 	glm::vec4 matColor;
-
 	convertColor( m->color, &matColor[0] );
-
-	// probe and see if the reflected vector hits anything
-	p = rayTracePrimitive( point, r, &t, true );
+	float rdn = 0.25f;
 	glm::vec4 diffuseColor;
-
-	float rdn = 0;
-	// it does, we'll add that object's diffuse color
-	if ( p )
+	
+	glm::vec3 r;
+	if (refraction_vector(normal, id, n1, n2, r))
 	{
-		diffuseColor = rayTraceColor( point, r );
+//		fprintf( stdout, "r = %g %g %g\n", r[0], r[1], r[2] );
 
-		// scale the reflected color based on the angle between reflection and surface normal
-		rdn = 0.5f * fmax( 0.0f, glm::dot(r, glm::normalize(normal)) );
+		
+		// probe and see if the reflected vector hits anything
+		p = rayTracePrimitive( point, r, &t, true, 0 );	
+
+		
+		// it does, we'll add that object's diffuse color
+		if ( p )
+		{
+//			fprintf( stdout, "found somethin...\n" );
+			diffuseColor = rayTraceColor( point, r );
+
+			// scale the reflected color based on the angle between reflection and surface normal
+	//		rdn = 0.5f * fmax( 0.0f, glm::dot(r, glm::normalize(normal)) );
+		}
 	}
 
-	glm::vec4 myColor = phongLighting( matColor, point, normal, id, 75.0f, 0.75f );
+	glm::vec4 myColor;
+	//myColor = phongLighting( matColor, point, normal, id, m->specular_power, m->specular_level );
 
 	glm::vec4 outColor = myColor + (rdn * diffuseColor);
 
@@ -789,15 +829,15 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	Material * blueMaterial = createPhongMaterial( Color( 0, 0, 255, 255 ), 75.0f, 0.75f );
 	Material * whiteMaterial = createPhongMaterial( Color( 255, 255, 255, 255 ), 75.0f, 0.75f );
 	Material * yellowMaterial = createPhongMaterial( Color( 255, 255, 0, 255 ), 75.0f, 0.75f );	
-	Material * mirrorMaterial = createMirrorMaterial( Color(0, 0, 0, 255 ), 0.5f, 100.0f, 1.0f );
-	Material * refraction = createRefractiveMaterial( Color( 0, 0, 0, 255), 1.30 );
+	Material * mirrorMaterial = createMirrorMaterial( Color(0, 0, 0, 255 ), 1.0f, 100.0f, 1.0f );
+	Material * refraction = createRefractiveMaterial( Color( 0, 0, 0, 255), 1.3f, 1.00f, 100.0f, 0.5f );
 	
 	addPlane( glm::vec3( 0.0f, -2.0f, 0.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ), greenMaterial );
 	
-	addSphere( glm::vec3( 0, 0, -10.0f ), 1.0f, blueMaterial );
-	addSphere( glm::vec3( -2.0f, 0.2f, -4.0f ), 1.0f, redMaterial );
+	addSphere( glm::vec3( -2.0, -2.0, -1.5f ), 1.0f, blueMaterial );
+	addSphere( glm::vec3( -2.0f, 0.8f, -4.0f ), 1.0f, redMaterial );
 	addSphere( glm::vec3( 1.8f, -0.6f, -2.0f), 1.0f, mirrorMaterial );
-	addSphere( glm::vec3( -2.75f, -1.0f, -1.0f), 1.0f, yellowMaterial );
+	addSphere( glm::vec3( -1.05f, -1.0f, -6.0f), 1.0f, yellowMaterial );
 	
 	glm::vec3 rayOrigin = eye;
 	unsigned char * pixels = rb.pixels;
@@ -851,10 +891,10 @@ int main( int argc, char ** argv )
 
 	scene.background_color = glm::vec4( 0.5f, 0.5f, 0.5f, 1.0f );
 	scene.current_trace_depth = 0;
-	scene.max_trace_depth = 8;
+	scene.max_trace_depth = 16;
 	
 	// setup lights in the scene
-	scene.ambient = glm::vec4( 0.10f, 0.10f, 0.125f, 1.0f );
+	scene.ambient = glm::vec4( 0.10f, 0.10f, 0.10f, 1.0f );
 	Light * light;
 	
 	light = &scene.lights[0];
@@ -865,12 +905,24 @@ int main( int argc, char ** argv )
 	light->specular = glm::vec3( 1.0f, 1.0f, 1.0f );
 	
 	light = &scene.lights[1];
-	light->enabled = 1;
+	light->enabled = 0;
 	light->intensity = 0.5f;
 	light->color = glm::vec3( 1.0f, 0.0f, 0.0f );
 	light->origin = glm::vec3( 5, 5, -5 );
 	light->specular = glm::vec3( 1.0f, 0.0f, 0.0f );
 	
+	int total_enabled = 0;
+	for( int i = 0; i < MAX_LIGHTS; ++i )
+	{
+		if ( scene.lights[i].enabled )
+			total_enabled++;
+	}
+	
+	float light_distribution = 1/(float)total_enabled;
+	for( int i = 0; i < MAX_LIGHTS; ++i )
+	{
+		scene.lights[i].intensity = light_distribution;
+	}
 	
 	// print_settings();
 //	fprintf( stdout, "======== Settings ========\n" );

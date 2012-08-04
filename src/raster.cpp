@@ -114,6 +114,12 @@ struct Triangle
 	Texture * texture;
 };
 
+struct Line
+{
+	Vertex start;
+	Vertex end;
+};
+
 struct Settings
 {
 	int perspective_correct;
@@ -323,7 +329,87 @@ void renderTriangle( RenderBuffer & rb, Triangle * t )
 			}
 		}
 	}
+}
 
+unsigned char * getPixelAt( RenderBuffer & rb, int x, int y )
+{
+	unsigned int idx = (y * rb.width * rb.channels) + (x*rb.channels);
+	return &rb.pixels[ idx ];
+}
+
+// http://roguebasin.roguelikedevelopment.org/index.php/Bresenham's_Line_Algorithm
+void renderLine( RenderBuffer & rb, Line * l )
+{
+	unsigned char * pixel;
+	float cA[4];
+	convertColor( l->start.color, cA );
+	
+	int x0 = l->start.position.x;
+	int x1 = l->end.position.x;
+	int y0 = l->start.position.y;
+	int y1 = l->end.position.y;
+	
+	
+	int dx = x1 - x0;
+	int dy = y1 - y0;
+	
+	char ix = (dx > 0) - (dx < 0);
+	dx = abs(dx) << 1;
+	
+	char iy = (dy > 0) - (dy < 0);
+	dy = abs(dy) << 1;
+
+	
+	if ( dx >= dy )
+	{
+		int error = (dy - dx >> 1);
+		
+		while( x0 != x1 )
+		{
+			if ( error >= 0 )
+			{
+				if ( error || (ix > 0) )
+				{
+					y0 += iy;
+					error -= dx;
+				}
+			}
+			
+			x0 += ix;
+			error += dy;
+			
+			pixel = getPixelAt( rb, x0, y0 );
+			pixel[0] = (cA[0]*255);
+			pixel[1] = (cA[1]*255);
+			pixel[2] = (cA[2]*255);		
+			pixel[3] = (cA[3]*255);
+		}
+	}
+	else
+	{
+		int error = (dx - dy >> 1);
+		
+		while( y0 != y1 )
+		{
+			if ( error >= 0 )
+			{
+				if ( error || (iy > 0) )
+				{
+					x0 += ix;
+					error -= dy;
+				}
+			}
+			
+			y0 += iy;
+			error += dx;
+			
+			pixel = getPixelAt( rb, x0, y0 );
+			pixel[0] = (cA[0]*255);
+			pixel[1] = (cA[1]*255);
+			pixel[2] = (cA[2]*255);		
+			pixel[3] = (cA[3]*255);
+		}
+	}
 }
 
 void normalizedDeviceCoordsToScreen( const glm::vec2 & ndc, glm::vec2 & screenpos, const Viewport & viewport )
@@ -395,6 +481,14 @@ void renderScene( const Camera & camera, const Viewport & viewport, RenderBuffer
 		}
 		t++;
 	}
+	
+	Line line;
+	line.start.color = Color( 0, 255, 0, 255 );
+	line.start.position = glm::vec3( 80, 75, 0 );
+	line.end.position = glm::vec3( 150, 100, 0 );
+	line.end.color = Color( 0, 0, 255, 255 );
+	renderLine( rb, &line );
+	
 }
 
 int main( int argc, char ** argv )
@@ -430,8 +524,11 @@ int main( int argc, char ** argv )
 	Texture tex;
 	
 	loadTexture( "assets/checker2.png", tex );	
+
+	num_triangles = 0;
 	
 	num_triangles = 2;
+#if 1
 	triangles = new Triangle[ num_triangles ];
 	Triangle t1;
 	t1.v[0].position = glm::vec3( -0.5f, -0.5f, -0.0f );
@@ -466,7 +563,7 @@ int main( int argc, char ** argv )
 	t2.texture = 0;
 	t2.texture = &tex;
 	triangles[1] = t2;
-	
+#endif
 	
 	
 	

@@ -11,3 +11,27 @@ void barycentric_coords( const glm::vec2 & p, const glm::vec2 & a, const glm::ve
 	*gamma = 1.0f - *alpha - *beta;
 }
 
+void loadTexture( const char * filename, Texture & texture )
+{
+	texture.pixels = 0;
+	texture.pixels = SOIL_load_image( filename, &texture.width, &texture.height, &texture.channels, SOIL_LOAD_AUTO );	
+	//	fprintf( stdout, "loaded image: \"%s\", %i x %i @ %i\n", filename, texture.width, texture.height, texture.channels );
+}
+
+void freeTexture( Texture & texture )
+{
+	if ( texture.pixels != 0 )
+	{
+		SOIL_free_image_data( texture.pixels );
+	}
+}
+
+
+void writeTexture( const char * filename, Texture & texture )
+{
+	int save_result = SOIL_save_image( filename, SOIL_SAVE_TYPE_TGA, texture.width, texture.height, texture.channels, texture.pixels );
+	if ( save_result != 1 )
+	{
+		fprintf( stdout, "saving to output failed!\n" );
+	}	
+}

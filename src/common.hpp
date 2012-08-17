@@ -98,3 +98,8 @@ inline unsigned int scaleColor( unsigned int a, float t )
 	
 	return (int(255*c[0]) ) | (int(255*c[1]) << 8) | (int(255*c[2]) << 16) | (int(255) << 24);
 }
+
+void freeTexture( Texture & texture );
+void loadTexture( const char * filename, Texture & texture );
+void writeTexture( const char * filename, Texture & texture );
+

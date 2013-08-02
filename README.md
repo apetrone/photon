@@ -19,8 +19,9 @@ Rasterization, and Raytracing.
 
 
 * raster
+
 	cd raster
-	
+
 	cmake -G "Unix Makefiles"
 
 	make

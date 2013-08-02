@@ -9,7 +9,13 @@ Rasterization, and Raytracing.
 
 #### // building
 
-* soil
+* clone and get all dependencies
+
+	git clone git://github.com/apetrone/photon.git
+
+	git submodule update --init
+
+* build soil
 
 	cd deps/soil
 
@@ -17,8 +23,7 @@ Rasterization, and Raytracing.
 	
 	make
 
-
-* raster
+* build raster
 
 	cd raster
 

@@ -5,34 +5,12 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <SOIL.h>
 #include <float.h>
+#include "common.h"
 
 #define PVEC2( v ) fprintf( stdout, "" #v " = %g, %g\n", v[0], v[1] )
 #define PVEC3( v ) fprintf( stdout, "" #v " = %g, %g, %g\n", v[0], v[1], v[2] )
 #define PVEC4( v ) fprintf( stdout, "" #v " = %g, %g, %g, %g\n", v[0], v[1], v[2], v[3] )
 
-
-#define DEBUG_WINDOW 1
-#if DEBUG_WINDOW
-	#include <xwl/xwl.h>
-	#if __APPLE__
-		#include <OpenGL/gl.h>
-	#else
-		#include <GL/gl.h>
-	#endif
-	int run = 1;
-	void callback( xwl_event_t * e )
-	{
-		if ( e->type == XWLE_KEYRELEASED )
-		{
-			if ( e->key == XWLK_ESCAPE )
-			{
-				run = 0;
-			}
-			//printf( "\t-> key: %i (%s)\n", e->key, xwl_key_to_string(e->key) );
-		}		
-	}
-
-#endif
 
 #define VIEWPORT_WIDTH 640.0f
 #define VIEWPORT_HEIGHT 480.0f
@@ -42,61 +20,6 @@
 // clip coordinates / (perspective divide) = normalized device coordinates
 // normalized device coordinates * viewport transform = screen coordinates
 
-// equation from wikipedia: http://en.wikipedia.org/wiki/Barycentric_coordinate_system_(mathematics)
-void barycentric_coords( const glm::vec2 & p, const glm::vec2 & a, const glm::vec2 & b, const glm::vec2 & c, float * alpha, float * beta, float * gamma )
-{
-	float detT = 1.0 / ((b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y));
-	*alpha = ((b.y - c.y)*(p.x - c.x) + (c.x - b.x) * (p.y - c.y)) * detT;
-	*beta = ((c.y - a.y)*(p.x - c.x) + (a.x - c.x) * (p.y - c.y)) * detT;
-
-	*gamma = 1.0f - *alpha - *beta;
-}
-
-struct Camera
-{
-	glm::mat4 modelview;
-	glm::mat4 projection;
-	glm::mat4 modelview_projection;
-};
-
-struct Vertex
-{
-	glm::vec3 position;
-	glm::vec4 eye;
-	glm::vec4 clip;
-	glm::vec4 ndc;
-	glm::vec2 screen;
-	glm::vec3 normal;
-	glm::vec3 normal_eye;
-	float u, v;
-	float r, g, b, a;
-	unsigned int color;
-};
-
-struct Viewport
-{
-	glm::vec2 offset;
-	glm::vec2 size;
-};
-
-// client structures
-
-struct Texture
-{
-	int width;
-	int height;
-	int channels;
-	unsigned char * pixels;
-};
-
-struct RenderBuffer
-{
-	unsigned char * pixels;
-	unsigned int width;
-	unsigned int height;
-	unsigned int channels;
-	float * zbuffer;
-};
 
 /*
 struct VertexShaderBlock
@@ -108,11 +31,7 @@ struct VertexShaderBlock
 };
 */
 
-struct Triangle
-{
-	Vertex v[3];
-	Texture * texture;
-};
+
 
 struct Line
 {
@@ -149,22 +68,6 @@ unsigned int num_triangles = 0;
 glm::vec3 light_position_eye;
 
 
-
-void loadTexture( const char * filename, Texture & texture )
-{
-	texture.pixels = 0;
-	texture.pixels = SOIL_load_image( filename, &texture.width, &texture.height, &texture.channels, SOIL_LOAD_AUTO );	
-//	fprintf( stdout, "loaded image: \"%s\", %i x %i @ %i\n", filename, texture.width, texture.height, texture.channels );
-}
-
-void freeTexture( Texture & texture )
-{
-	if ( texture.pixels != 0 )
-	{
-		SOIL_free_image_data( texture.pixels );
-	}
-}
-
 glm::vec4 texture2D( Texture * texture, const glm::vec2 & uv )
 {
 	int x, y;
@@ -178,25 +81,6 @@ glm::vec4 texture2D( Texture * texture, const glm::vec2 & uv )
 	return glm::vec4( pixel[0], pixel[1], pixel[2], alpha );
 }
 
-inline unsigned int Color( unsigned char _r, unsigned char _g, unsigned char _b, unsigned char _a )
-{
-	return (_r | _g << 8 | _b << 16 | _a << 24 );
-}
-
-inline unsigned int scaleColor( unsigned int a, float t )
-{
-	float ac[] = { (a & 0xFF), ((a >> 8) & 0xFF), ((a >> 16) & 0xFF), ( (a >> 24) & 0xFF) };
-
-	return (int(t*ac[0]) ) | (int(t*ac[1]) << 8) | (int(t*ac[2]) << 16) | (int(t*ac[3]) << 24);
-}
-
-inline void convertColor( unsigned int color, float out[4] )
-{
-	out[3] = ((color >> 24) & 0xFF) / 255.0;
-	out[2] = ((color >> 16) & 0xFF) / 255.0;
-	out[1] = ((color >> 8) & 0xFF) / 255.0;
-	out[0] = (color & 0xFF) / 255.0;
-}
 
 void clearColor( RenderBuffer & rb, unsigned int color )
 {
@@ -602,70 +486,6 @@ int main( int argc, char ** argv )
 	fprintf( stdout, "======== Render Scene ========\n" );
 	renderScene( cam1, vp, render_buffer );
 	fprintf( stdout, "\ttriangles rendered: %i\n", num_triangles );
-
-#if DEBUG_WINDOW
-	if ( argc > 1 )
-	{
-		xwl_startup();
-
-		xwl_windowparams_t wp;
-		wp.width = VIEWPORT_WIDTH;
-		wp.height = VIEWPORT_HEIGHT;
-		wp.flags |= XWL_OPENGL;
-		xwl_window_t * window = xwl_create_window( &wp, "title", 0 );
-		xwl_set_callback( callback );
-
-		printf( "-> GL_VENDOR: %s\n", glGetString( GL_VENDOR ) );
-		printf( "-> GL_RENDERER: %s\n", glGetString( GL_RENDERER ) );
-		printf( "-> GL_VERSION: %s\n", glGetString( GL_VERSION ) );
-
-		
-		while( run )
-		{
-			xwl_event_t e;
-			memset( &e, 0, sizeof(xwl_event_t) );
-			xwl_pollevent( &e );
-
-			glClearColor( 0.25, 0.25, 0.25, 1.0 );
-			glClearDepth( 1.0f );
-			glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
-			glDisable( GL_CULL_FACE );
-			glViewport( vp.offset[0], vp.offset[1], vp.size[0], vp.size[1] );
-
-			glMatrixMode( GL_PROJECTION );
-			glLoadMatrixf( (const float*)&cam1.projection[0] );
-
-			glMatrixMode( GL_MODELVIEW );
-			glLoadMatrixf( (const float*)&cam1.modelview[0] );
-			
-			glBegin( GL_TRIANGLES );
-			Triangle * t = triangles;
-			for( int i = 0; i < num_triangles; ++i )
-			{
-				glColor4ubv( (unsigned char*)&t->v[0].color );
-				glVertex3fv( (const float*)&t->v[0].position[0] );
-				glColor4ubv( (unsigned char*)&t->v[1].color );
-				glVertex3fv( (const float*)&t->v[1].position[0] );
-				glColor4ubv( (unsigned char*)&t->v[2].color );			
-				glVertex3fv( (const float*)&t->v[2].position[0] );
-				++t;
-			}
-			glEnd();
-
-			glPointSize( 4.0 );
-			glColor3ub( 255, 0, 0 );
-
-			glBegin( GL_POINTS );
-				glVertex3i( 0, 0, 0 );
-			glEnd();
-
-			xwl_finish();
-		}
-
-
-		xwl_shutdown();
-	}
-#endif
 
 	int save_result = SOIL_save_image( "output/output.bmp", SOIL_SAVE_TYPE_BMP, render_buffer.width, render_buffer.height, render_buffer.channels, render_buffer.pixels );
 	if ( save_result != 1 )

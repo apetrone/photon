@@ -1,4 +1,4 @@
-#include <common.hpp>
+#include "common.h"
 
 
 // equation from wikipedia: http://en.wikipedia.org/wiki/Barycentric_coordinate_system_(mathematics)

@@ -1,0 +1,6 @@
+[submodule "deps/glm"]
+	path = deps/glm
+	url = git://github.com/Groovounet/glm.git
+[submodule "deps/soil"]
+	path = deps/soil
+	url = https://github.com/sakkaku/soil.git

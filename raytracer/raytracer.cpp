@@ -92,7 +92,7 @@ bool IntersectRaySphere( const glm::vec3 rayOrigin, const glm::vec3 rayDirection
 	float det = b * b - 4.0f * a * c;
 
 	// miss! no intersections
-	if ( det < 0.0f )
+	if ( det < FLT_EPSILON )
 	{
 		return false;
 	}
@@ -141,7 +141,7 @@ bool IntersectRaySphere( const glm::vec3 rayOrigin, const glm::vec3 rayDirection
 	{
 		*t = t0;
 	}
-#elif 0
+#elif 1
 	float rootMin = (-b - detsqrt) / (2.0f * a);
 	float rootMax = (-b + detsqrt) / (2.0f * a);	
 	
@@ -194,7 +194,7 @@ bool IntersectRayPlane( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirect
 	float org = glm::dot( (planeOrigin - rayOrigin), planeNormal );
 
 	float planeIntersection = (org / ldn);
-	if ( planeIntersection < 0.0f )
+	if ( planeIntersection < FLT_EPSILON )
 		return false;
 	
 	*t = planeIntersection;

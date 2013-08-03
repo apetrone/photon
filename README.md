@@ -31,4 +31,9 @@ Rasterization, and Raytracing.
 
 The resulting binaries should be in the root project folder. Some generators don't do this - they place it in a Debug/Release subfolder.
 
-These are command line applications -- invoke them from their project root. i.e. Make sure the current working directory is the project's own root folder. "./raster" or "./Debug/raster", if it's in a subfolder.
+These are command line applications -- invoke them from project root. i.e. Make sure the current working directory is the project's own root folder. "./raster" or "./Debug/raster", if it's in a subfolder.
+
+As an example:
+
+	cd $PHOTON_PATH/raster/
+	./raster

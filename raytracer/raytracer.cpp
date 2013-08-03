@@ -414,7 +414,16 @@ struct Light
 	glm::vec3 specular;
 	int enabled;
 	float intensity; // normalized intensity
+	
+	Light();
 };
+
+
+Light::Light()
+{
+	enabled = 0;
+	intensity = 0;
+}
 
 
 const int MAX_LIGHTS = 2;
@@ -428,6 +437,7 @@ struct SceneContext
 	Light lights[ MAX_LIGHTS ];
 };
 
+
 static SceneContext scene;
 
 Primitive * _primitives = 0;
@@ -439,7 +449,7 @@ Primitive * rayTracePrimitive( const glm::vec3 & rayOrigin, const glm::vec3 & ra
 {
 	// if find_closest is false, it will immediately return the first result it finds...
 	Primitive * closestPrimitive = 0;
-	Primitive * p;
+	Primitive * p = 0;
 	float min_distance = FLT_MAX;
 	float closest_t = 0;
 	float e = (FLT_EPSILON*500.0);
@@ -485,7 +495,7 @@ glm::vec4 rayTraceColor( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirec
 {
 	if ( scene.current_trace_depth >= scene.max_trace_depth )
 	{
-		fprintf( stdout, "Reached max trace depth!\n" );
+		fprintf( stdout, "Reached max_trace_depth of %i\n", scene.max_trace_depth );
 		return scene.background_color;
 	}
 	
@@ -497,6 +507,7 @@ glm::vec4 rayTraceColor( const glm::vec3 & rayOrigin, const glm::vec3 & rayDirec
 	if ( closestPrimitive )
 	{
 		fcolor = scene.ambient;
+
 		Light * light;
 		for( int light_num = 0; light_num < MAX_LIGHTS; ++light_num )
 		{
@@ -587,7 +598,7 @@ glm::vec4 MirrorColorAtPoint( struct Primitive * primitive, const glm::vec3 & po
 {
 	MirrorMaterial * m = (MirrorMaterial*)primitive->material->data;
 	
-	float t;
+	float t = 0.0f;
 	Primitive * p = 0;
 	glm::vec3 r = glm::normalize( glm::reflect(id, normal) );
 	
@@ -692,7 +703,7 @@ void purgePrimitives()
 	for( unsigned int p = 0; p < _num_primitives; ++p )
 	{
 		Primitive * primitive = &_primitives[ p ];
-		if ( primitive->type != 0 )
+		if ( primitive->data != 0 )
 		{
 			free(primitive->data);
 		}
@@ -825,6 +836,8 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	
 	float aspect = (rb.width/(float)rb.height);
 
+
+
 		
 	allocPrimitives( 8 );
 	allocMaterials( 16 );
@@ -931,11 +944,14 @@ int main( int argc, char ** argv )
 	}
 	
 	// print_settings();
-//	fprintf( stdout, "======== Settings ========\n" );
-//	fprintf( stdout, "\tperpsective_correct: %i\n", settings().perspective_correct );
-//	fprintf( stdout, "\tbackface_culling: %i\n", settings().backface_culling );
-//	fprintf( stdout, "\ttexture_mapping: %i\n", settings().texture_mapping );
-//	fprintf( stdout, "\tlighting: %i\n", settings().lighting );
+	fprintf( stdout, "======== Settings ========\n" );
+	fprintf( stdout, "\tperpsective_correct: %i\n", settings().perspective_correct );
+	fprintf( stdout, "\tbackface_culling: %i\n", settings().backface_culling );
+	fprintf( stdout, "\ttexture_mapping: %i\n", settings().texture_mapping );
+	fprintf( stdout, "\tlighting: %i\n", settings().lighting );
+
+	fprintf( stdout, "======== Scene ========\n" );
+	fprintf( stdout, "\ttotal lights: %i\n", total_enabled );
 	
 	// setup camera
 //	Camera cam1;
@@ -948,10 +964,12 @@ int main( int argc, char ** argv )
 	render_buffer.height = (int)vp.size.y;
 	render_buffer.channels = 4;
 	render_buffer.pixels = new unsigned char[ render_buffer.width * render_buffer.height * render_buffer.channels ];
-	render_buffer.zbuffer = new float[ render_buffer.width * render_buffer.height ];
+	render_buffer.zbuffer = 0; //new float[ render_buffer.width * render_buffer.height ];
 	
+	// fill in the z-buffer with default values
+//	memset( render_buffer.zbuffer, 0, sizeof(float) * render_buffer.width * render_buffer.height );
 
-	fprintf( stdout, "======== Render Scene ========\n" );
+	fprintf( stdout, "======== Rendering Scene ========\n" );
 	glm::vec3 eye( 0, 0, 1 );
 	render_scene( eye, render_buffer );
 	

@@ -40,7 +40,12 @@ void barycentric_coords( const glm::vec2 & p, const glm::vec2 & a, const glm::ve
 void loadTexture( const char * filename, Texture & texture )
 {
 	texture.pixels = 0;
-	texture.pixels = SOIL_load_image( filename, &texture.width, &texture.height, &texture.channels, SOIL_LOAD_AUTO );	
+	texture.pixels = SOIL_load_image( filename, &texture.width, &texture.height, &texture.channels, SOIL_LOAD_AUTO );
+	
+	if ( !texture.pixels )
+	{
+		fprintf( stderr, "Failed loading image \"%s\", is this being run from the correct directory?\n", filename );
+	}
 	//	fprintf( stdout, "loaded image: \"%s\", %i x %i @ %i\n", filename, texture.width, texture.height, texture.channels );
 }
 

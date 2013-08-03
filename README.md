@@ -9,24 +9,26 @@ Rasterization, and Raytracing.
 
 #### // building
 
-* clone and get all dependencies
+
+* Pretty simple if you're familiar with CMake - I use it for included projects and even the dependencies use it.
+
+1. clone and get all dependencies
 
 	git clone git://github.com/apetrone/photon.git
 
 	git submodule update --init
 
-* build soil
+2. build soil
 
 	cd deps/soil
 
-	cmake -G "Unix Makefiles"
-	
-	make
+	cmake -G <generator>
 
-* build raster
+3. Build whichever project you want. Each are organized into their own subfolder. Here's an example for "raster" with CMake. After this you can use "make" or open the generated project in your favorite IDE.
 
 	cd raster
 
-	cmake -G "Unix Makefiles"
+	cmake -G <generator>
 
-	make
+The resulting binaries should be in the root project folder.
+These are command line applications -- invoke them from their project root.

@@ -407,7 +407,7 @@ int main( int argc, char ** argv )
 
 	Texture tex;
 	
-	loadTexture( "assets/checker2.png", tex );	
+	loadTexture( "../assets/checker2.png", tex );	
 
 	num_triangles = 0;
 	
@@ -487,7 +487,7 @@ int main( int argc, char ** argv )
 	renderScene( cam1, vp, render_buffer );
 	fprintf( stdout, "\ttriangles rendered: %i\n", num_triangles );
 
-	int save_result = SOIL_save_image( "output/output.bmp", SOIL_SAVE_TYPE_BMP, render_buffer.width, render_buffer.height, render_buffer.channels, render_buffer.pixels );
+	int save_result = SOIL_save_image( "../output/raster.bmp", SOIL_SAVE_TYPE_BMP, render_buffer.width, render_buffer.height, render_buffer.channels, render_buffer.pixels );
 	if ( save_result != 1 )
 	{
 		fprintf( stdout, "saving to output failed!\n" );

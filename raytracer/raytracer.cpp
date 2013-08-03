@@ -223,9 +223,6 @@ struct Material
 {
 	int type;
 	void * data;
-	
-	
-	
 	MaterialColor colorAtPoint;
 };
 
@@ -298,7 +295,7 @@ void purgeMaterials()
 	for( unsigned int p = 0; p < _num_materials; ++p )
 	{
 		Material * material = &_materials[ p ];
-		if ( material->type != 0 )
+		if ( material->data != 0 )
 		{
 			free( material->data );
 		}
@@ -322,6 +319,10 @@ Material * createPhongMaterial( unsigned int color, float specularPower, float s
 		m->data = mat;
 		m->colorAtPoint = LambertColorAtPoint;
 	}
+	else
+	{
+		free(mat);
+	}
 	
 	return m;
 }
@@ -340,6 +341,11 @@ Material * createMirrorMaterial( unsigned int color, float reflectance, float sp
 		m->data = mat;
 		m->colorAtPoint = MirrorColorAtPoint;
 	}
+	else
+	{
+		free(mat);
+	}
+	
 	return m;
 }
 
@@ -357,6 +363,10 @@ Material * createRefractiveMaterial( unsigned int color, float refractive_index,
 	{
 		m->data = mat;
 		m->colorAtPoint = RefractiveColorAtPoint;
+	}
+	else
+	{
+		free(mat);
 	}
 	return m;
 }
@@ -778,6 +788,10 @@ void addPlane( const glm::vec3 & planeOrigin, const glm::vec3 & planeNormal, Mat
 		p->normalAtPoint = PlaneNormalAtPoint;
 		p->material = material;
 	}
+	else
+	{
+		free(plane);
+	}
 }
 
 void addSphere( const glm::vec3 & sphereOrigin, float radius, Material * material )
@@ -794,6 +808,10 @@ void addSphere( const glm::vec3 & sphereOrigin, float radius, Material * materia
 		p->intersection = SphereIntersection;
 		p->normalAtPoint = SphereNormalAtPoint;
 		p->material = material;
+	}
+	else
+	{
+		free(sphere);
 	}
 }
 
@@ -815,10 +833,10 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	Material * redMaterial = createPhongMaterial( Color( 255, 0, 0, 255 ), 75.0f, 0.75f );
 	Material * greenMaterial = createPhongMaterial( Color( 0, 255, 0, 255 ), 75.0f, 0.75f );
 	Material * blueMaterial = createPhongMaterial( Color( 0, 0, 255, 255 ), 75.0f, 0.75f );
-	Material * whiteMaterial = createPhongMaterial( Color( 255, 255, 255, 255 ), 75.0f, 0.75f );
-	Material * yellowMaterial = createPhongMaterial( Color( 255, 255, 0, 255 ), 75.0f, 0.75f );	
+//	Material * whiteMaterial = createPhongMaterial( Color( 255, 255, 255, 255 ), 75.0f, 0.75f );
+	Material * yellowMaterial = createPhongMaterial( Color( 255, 255, 0, 255 ), 75.0f, 0.75f );
 	Material * mirrorMaterial = createMirrorMaterial( Color(0, 0, 0, 255 ), 1.0f, 100.0f, 1.0f );
-	Material * refraction = createRefractiveMaterial( Color( 0, 0, 0, 255), 1.3f, 1.00f, 100.0f, 0.5f );
+//	Material * refraction = createRefractiveMaterial( Color( 0, 0, 0, 255), 1.3f, 1.00f, 100.0f, 0.5f );
 	
 	addPlane( glm::vec3( 0.0f, -2.0f, 0.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ), greenMaterial );
 	
@@ -830,10 +848,10 @@ void render_scene( glm::vec3 & eye, RenderBuffer & rb )
 	glm::vec3 rayOrigin = eye;
 	unsigned char * pixels = rb.pixels;
 	
-	float objectColor[4];
+//	float objectColor[4];
 	
-	Primitive * prim = 0;
-	float t;
+//	Primitive * prim = 0;
+//	float t;
 	glm::vec3 normal;
 	glm::vec3 lightdir;
 	
